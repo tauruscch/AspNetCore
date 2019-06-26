@@ -550,6 +550,12 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             }
         }
 
+        public Task DrainAsync()
+        {
+            Debug.Assert(_completed);
+            return _flusher.LastFlushTask;
+        }
+
         private void WriteHeaderUnsynchronized()
         {
             _log.Http2FrameSending(_connectionId, _outgoingFrame);

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
 {
@@ -16,6 +17,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
 
         public override void Execute()
         {
+            Http2Activity.Current = new Http2Activity();
+            Http2Activity.Current.StreamId = _context.StreamId;
             // REVIEW: Should we store this in a field for easy debugging?
             _ = ProcessRequestsAsync(_application);
         }

@@ -60,7 +60,7 @@ namespace Microsoft.AspNetCore.Hosting
             {
                 _cachedToString = string.Format(
                     CultureInfo.InvariantCulture,
-                    "Request starting {0} {1} {2}://{3}{4}{5}{6} {7} {8}",
+                    "Request starting {0} {1} {2}://{3}{4}{5}{6} {7} {8} {9}",
                     _request.Protocol,
                     _request.Method,
                     _request.Scheme,
@@ -69,7 +69,8 @@ namespace Microsoft.AspNetCore.Hosting
                     _request.Path.Value,
                     _request.QueryString.Value,
                     _request.ContentType,
-                    _request.ContentLength);
+                    _request.ContentLength,
+                    _request.HttpContext.Items["streamId"]);
             }
 
             return _cachedToString;

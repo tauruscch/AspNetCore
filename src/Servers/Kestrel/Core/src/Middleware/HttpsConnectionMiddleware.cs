@@ -103,7 +103,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Https.Internal
 
             if (_options.ClientCertificateMode == ClientCertificateMode.NoCertificate)
             {
-                sslDuplexPipe = new SslDuplexPipe(context.Transport, inputPipeOptions, outputPipeOptions);
+                sslDuplexPipe = new SslDuplexPipe(context.Transport, inputPipeOptions, outputPipeOptions)
+                {
+                    ConnectionId = context.ConnectionId,
+                    Logger = _logger
+                };
                 certificateRequired = false;
             }
             else
@@ -140,7 +144,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Https.Internal
                         }
 
                         return true;
-                    }));
+                    }))
+                {
+                    ConnectionId = context.ConnectionId,
+                    Logger = _logger
+                };
 
                 certificateRequired = true;
             }

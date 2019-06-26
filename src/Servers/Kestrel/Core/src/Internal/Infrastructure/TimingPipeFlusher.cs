@@ -6,6 +6,7 @@ using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Connections;
+using Microsoft.AspNetCore.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
 using Microsoft.Extensions.Logging;
 
@@ -29,6 +30,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
         // 3. Constructed explicitely from a completed result
         // This means it should be safe to await a single _lastFlushTask instance multiple times.
         private ValueTask<FlushResult> _lastFlushTask;
+
+        public Task LastFlushTask => _lastFlushTask.GetAsTask();
 
         public TimingPipeFlusher(
             PipeWriter writer,

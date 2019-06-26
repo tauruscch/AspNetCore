@@ -5,6 +5,7 @@ using System;
 using System.IO;
 using System.IO.Pipelines;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
 {
@@ -23,7 +24,23 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
         {
             Stream = createStream(this);
             Input = PipeReader.Create(Stream, readerOptions);
-            Output = PipeWriter.Create(Stream, writerOptions);
+            Output = new StreamPipeWriter(Stream, writerOptions);
+        }
+
+        public ILogger Logger
+        {
+            set
+            {
+                ((StreamPipeWriter)Output).Logger = value;
+            }
+        }
+
+        public string ConnectionId
+        {
+            set
+            {
+                ((StreamPipeWriter)Output).ConnectionId = value;
+            }
         }
 
         public TStream Stream { get; }
@@ -31,13 +48,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
         public PipeReader Input { get; }
 
         public PipeWriter Output { get; }
-
-        protected override void Dispose(bool disposing)
-        {
-            Input.Complete();
-            Output.Complete();
-            base.Dispose(disposing);
-        }
 
         public override ValueTask DisposeAsync()
         {

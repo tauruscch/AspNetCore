@@ -300,7 +300,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 }
                 finally
                 {
-                    Input.Complete();
+                    await _frameWriter.DrainAsync();
                 }
             }
         }
