@@ -95,17 +95,9 @@ namespace Microsoft.AspNetCore.SignalR.Common.Tests.Internal.Protocol
                 message: new StreamItemMessage("xyz", item: 42),
                 binary: "lAKAo3h5eio="),
             new ProtocolTestData(
-                name: "StreamItemWithNoHeadersAndFloatItem",
-                message: new StreamItemMessage("xyz", item: 42.0f),
-                binary: "lAKAo3h5espCKAAA"),
-            new ProtocolTestData(
                 name: "StreamItemWithNoHeadersAndStringItem",
                 message: new StreamItemMessage("xyz", item: "string"),
                 binary: "lAKAo3h5eqZzdHJpbmc="),
-            new ProtocolTestData(
-                name: "StreamItemWithNoHeadersAndBoolItem",
-                message: new StreamItemMessage("xyz", item: true),
-                binary: "lAKAo3h5esM="),
 
             // Completion Messages
             new ProtocolTestData(
@@ -129,17 +121,9 @@ namespace Microsoft.AspNetCore.SignalR.Common.Tests.Internal.Protocol
                 message: CompletionMessage.WithResult("xyz", payload: 42),
                 binary: "lQOAo3h5egMq"),
             new ProtocolTestData(
-                name: "CompletionWithNoHeadersAndFloatResult",
-                message: CompletionMessage.WithResult("xyz", payload: 42.0f),
-                binary: "lQOAo3h5egPKQigAAA=="),
-            new ProtocolTestData(
                 name: "CompletionWithNoHeadersAndStringResult",
                 message: CompletionMessage.WithResult("xyz", payload: "string"),
                 binary: "lQOAo3h5egOmc3RyaW5n"),
-            new ProtocolTestData(
-                name: "CompletionWithNoHeadersAndBooleanResult",
-                message: CompletionMessage.WithResult("xyz", payload: true),
-                binary: "lQOAo3h5egPD"),
 
             // StreamInvocation Messages
             new ProtocolTestData(

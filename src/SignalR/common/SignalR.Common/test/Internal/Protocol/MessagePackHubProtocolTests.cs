@@ -95,6 +95,10 @@ namespace Microsoft.AspNetCore.SignalR.Common.Tests.Internal.Protocol
                 message: CompletionMessage.WithResult("xyz", payload: null),
                 binary: "lQOAo3h5egPA"),
             new ProtocolTestData(
+                name: "CompletionWithNoHeadersAndFloatResult",
+                message: CompletionMessage.WithResult("xyz", payload: 42.0f),
+                binary: "lQOAo3h5egPKQigAAA=="),
+            new ProtocolTestData(
                 name: "CompletionWithNoHeadersAndCustomObjectResult",
                 message: CompletionMessage.WithResult("xyz", payload: new CustomObject()),
                 binary: "lQOAo3h5egOGqlN0cmluZ1Byb3CoU2lnbmFsUiGqRG91YmxlUHJvcMtAGSH7VELPEqdJbnRQcm9wKqxEYXRlVGltZVByb3DW/1jsHICoTnVsbFByb3DAq0J5dGVBcnJQcm9wxAMBAgM="),
@@ -110,6 +114,10 @@ namespace Microsoft.AspNetCore.SignalR.Common.Tests.Internal.Protocol
                 name: "CompletionWithNoHeadersAndEnumResult",
                 message: CompletionMessage.WithResult("xyz", payload: TestEnum.One),
                 binary: "lQOAo3h5egOjT25l"),
+            new ProtocolTestData(
+                name: "CompletionWithNoHeadersAndBooleanResult",
+                message: CompletionMessage.WithResult("xyz", payload: true),
+                binary: "lQOAo3h5egPD"),
 
             // Invocation messages
             new ProtocolTestData(
@@ -139,9 +147,17 @@ namespace Microsoft.AspNetCore.SignalR.Common.Tests.Internal.Protocol
                 message: new StreamItemMessage("xyz", item: null),
                 binary: "lAKAo3h5esA="),
             new ProtocolTestData(
+                name: "StreamItemWithNoHeadersAndBoolItem",
+                message: new StreamItemMessage("xyz", item: true),
+                binary: "lAKAo3h5esM="),
+            new ProtocolTestData(
                 name: "StreamItemWithNoHeadersAndEnumItem",
                 message: new StreamItemMessage("xyz", item: TestEnum.One),
                 binary: "lAKAo3h5eqNPbmU="),
+            new ProtocolTestData(
+                name: "StreamItemWithNoHeadersAndFloatItem",
+                message: new StreamItemMessage("xyz", item: 42.0f),
+                binary: "lAKAo3h5espCKAAA"),
             new ProtocolTestData(
                 name: "StreamItemWithNoHeadersAndCustomObjectItem",
                 message: new StreamItemMessage("xyz", item: new CustomObject()),

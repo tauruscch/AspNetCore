@@ -420,16 +420,8 @@ namespace Microsoft.AspNetCore.Components.Server.BlazorPack
                     writer.Write(longValue);
                     break;
 
-                case float floatValue:
-                    writer.Write(floatValue);
-                    break;
-
                 case byte[] byteArray:
                     writer.Write(byteArray);
-                    break;
-
-                case Exception exception:
-                    writer.Write(exception.ToString());
                     break;
 
                 default:
@@ -445,10 +437,6 @@ namespace Microsoft.AspNetCore.Components.Server.BlazorPack
                 {
                     return ReadString(ref reader, "argument");
                 }
-                else if (type == typeof(bool))
-                {
-                    return reader.ReadBoolean();
-                }
                 else if (type == typeof(int))
                 {
                     return reader.ReadInt32();
@@ -456,17 +444,6 @@ namespace Microsoft.AspNetCore.Components.Server.BlazorPack
                 else if (type == typeof(long))
                 {
                     return reader.ReadInt64();
-                }
-                else if (type == typeof(float))
-                {
-                    return reader.ReadSingle();
-                }
-                else if (type == typeof(byte[]))
-                {
-                    var bytes = reader.ReadBytes();
-                    // MessagePack ensures there are at least as many bytes in the message as declared by the byte header.
-                    // Consequently it is safe to do ToArray on the returned SequenceReader instance.
-                    return bytes.ToArray();
                 }
             }
             catch (Exception ex)
