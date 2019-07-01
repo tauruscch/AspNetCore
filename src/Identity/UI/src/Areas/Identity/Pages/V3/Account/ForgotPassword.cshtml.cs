@@ -75,10 +75,14 @@ namespace Microsoft.AspNetCore.Identity.UI.V3.Pages.Account.Internal
                 // For more information on how to enable account confirmation and password reset please
                 // visit https://go.microsoft.com/fwlink/?LinkID=532713
                 var code = await _userManager.GeneratePasswordResetTokenAsync(user);
+                while (code.Contains('+'))
+                {
+                    code = await _userManager.GeneratePasswordResetTokenAsync(user);
+                }
                 var callbackUrl = Url.Page(
                     "/Account/ResetPassword",
                     pageHandler: null,
-                    values: new { code },
+                    values: new { area = "Identity", code },
                     protocol: Request.Scheme);
 
                 await _emailSender.SendEmailAsync(

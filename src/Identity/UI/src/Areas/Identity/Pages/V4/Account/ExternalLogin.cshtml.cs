@@ -204,10 +204,15 @@ namespace Microsoft.AspNetCore.Identity.UI.V4.Pages.Account.Internal
                         await _signInManager.SignInAsync(user, isPersistent: false);
                         var userId = await _userManager.GetUserIdAsync(user);
                         var code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+                        while (code.Contains('+'))
+                        {
+                            code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+                        }
+
                         var callbackUrl = Url.Page(
                             "/Account/ConfirmEmail",
                             pageHandler: null,
-                            values: new { userId = userId, code = code },
+                            values: new { area = "Identity", userId = userId, code = code },
                             protocol: Request.Scheme);
 
                         await _emailSender.SendEmailAsync(Input.Email, "Confirm your email",

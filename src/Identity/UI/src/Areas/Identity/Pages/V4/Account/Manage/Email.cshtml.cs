@@ -134,10 +134,15 @@ namespace Microsoft.AspNetCore.Identity.UI.V4.Pages.Account.Manage.Internal
             {
                 var userId = await _userManager.GetUserIdAsync(user);
                 var code = await _userManager.GenerateChangeEmailTokenAsync(user, Input.NewEmail);
+                while (code.Contains('+'))
+                {
+                    code = await _userManager.GenerateChangeEmailTokenAsync(user, Input.NewEmail);
+                }
+
                 var callbackUrl = Url.Page(
                     "/Account/ConfirmEmailChange",
                     pageHandler: null,
-                    values: new { userId = userId, email = Input.NewEmail, code = code },
+                    values: new { area = "Identity", userId = userId, email = Input.NewEmail, code = code },
                     protocol: Request.Scheme);
                 await _emailSender.SendEmailAsync(
                     Input.NewEmail,
@@ -168,6 +173,11 @@ namespace Microsoft.AspNetCore.Identity.UI.V4.Pages.Account.Manage.Internal
             var userId = await _userManager.GetUserIdAsync(user);
             var email = await _userManager.GetEmailAsync(user);
             var code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+            while (code.Contains('+'))
+            {
+                code = await _userManager.GenerateEmailConfirmationTokenAsync(user);
+            }
+
             var callbackUrl = Url.Page(
                 "/Account/ConfirmEmail",
                 pageHandler: null,
