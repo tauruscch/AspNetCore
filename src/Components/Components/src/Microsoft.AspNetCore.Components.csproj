@@ -9,8 +9,12 @@
     <RazorLangVersion>3.0</RazorLangVersion>
   </PropertyGroup>
 
-    <ItemGroup>
+  <ItemGroup>
     <Compile Include="..\..\Shared\src\JsonSerializerOptionsProvider.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Analyzers\src\Microsoft.AspNetCore.Components.Analyzers.csproj" />
   </ItemGroup>
 
   <ItemGroup>
