@@ -30,8 +30,8 @@ namespace Microsoft.AspNetCore.Components.Test
         void IDisposable.Dispose()
         {
             renderer.Dispose();
-            oldTree.Dispose();
-            newTree.Dispose();
+            ((IDisposable)oldTree).Dispose();
+            ((IDisposable)newTree).Dispose();
             batchBuilder.Dispose();
         }
 
