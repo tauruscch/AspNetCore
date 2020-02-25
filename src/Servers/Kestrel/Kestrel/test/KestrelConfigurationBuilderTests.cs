@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.AspNetCore.Testing;
-using Microsoft.AspNetCore.Testing.xunit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -219,7 +218,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Tests
             try
             {
                 var serverOptions = CreateServerOptions();
-                var certificate = new X509Certificate2(TestResources.GetCertPath("aspnetdevcert.pfx"), "aspnetdevcert", X509KeyStorageFlags.Exportable);
+                var certificate = new X509Certificate2(TestResources.GetCertPath("aspnetdevcert.pfx"), "testPassword", X509KeyStorageFlags.Exportable);
                 var bytes = certificate.Export(X509ContentType.Pkcs12, "1234");
                 var path = GetCertificatePath();
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
@@ -259,7 +258,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Tests
             try
             {
                 var serverOptions = CreateServerOptions();
-                var certificate = new X509Certificate2(TestResources.GetCertPath("aspnetdevcert.pfx"), "aspnetdevcert", X509KeyStorageFlags.Exportable);
+                var certificate = new X509Certificate2(TestResources.GetCertPath("aspnetdevcert.pfx"), "testPassword", X509KeyStorageFlags.Exportable);
                 var bytes = certificate.Export(X509ContentType.Pkcs12, "1234");
                 var path = GetCertificatePath();
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
@@ -320,8 +319,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Tests
         [InlineData("http1", HttpProtocols.Http1)]
         // [InlineData("http2", HttpProtocols.Http2)] // Not supported due to missing ALPN support. https://github.com/dotnet/corefx/issues/33016
         [InlineData("http1AndHttp2", HttpProtocols.Http1AndHttp2)] // Gracefully falls back to HTTP/1
-        [OSSkipCondition(OperatingSystems.Linux | OperatingSystems.Windows)]
-        public void DefaultConfigSectionCanSetProtocols_Mac(string input, HttpProtocols expected)
+        [OSSkipCondition(OperatingSystems.Linux)]
+        [MaximumOSVersion(OperatingSystems.Windows, WindowsVersions.Win7)]
+        public void DefaultConfigSectionCanSetProtocols_MacAndWin7(string input, HttpProtocols expected)
             => DefaultConfigSectionCanSetProtocols(input, expected);
 
         [ConditionalTheory]
@@ -329,7 +329,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Tests
         [InlineData("http2", HttpProtocols.Http2)]
         [InlineData("http1AndHttp2", HttpProtocols.Http1AndHttp2)]
         [OSSkipCondition(OperatingSystems.MacOSX)]
-        public void DefaultConfigSectionCanSetProtocols_NonMac(string input, HttpProtocols expected)
+        [MinimumOSVersion(OperatingSystems.Windows, WindowsVersions.Win81)]
+        public void DefaultConfigSectionCanSetProtocols_NonMacAndWin7(string input, HttpProtocols expected)
             => DefaultConfigSectionCanSetProtocols(input, expected);
 
         private void DefaultConfigSectionCanSetProtocols(string input, HttpProtocols expected)
@@ -387,8 +388,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Tests
         [InlineData("http1", HttpProtocols.Http1)]
         // [InlineData("http2", HttpProtocols.Http2)] // Not supported due to missing ALPN support. https://github.com/dotnet/corefx/issues/33016
         [InlineData("http1AndHttp2", HttpProtocols.Http1AndHttp2)] // Gracefully falls back to HTTP/1
-        [OSSkipCondition(OperatingSystems.Linux | OperatingSystems.Windows)]
-        public void EndpointConfigSectionCanSetProtocols_Mac(string input, HttpProtocols expected) =>
+        [OSSkipCondition(OperatingSystems.Linux)]
+        [MaximumOSVersion(OperatingSystems.Windows, WindowsVersions.Win7)]
+        public void EndpointConfigSectionCanSetProtocols_MacAndWin7(string input, HttpProtocols expected) =>
             EndpointConfigSectionCanSetProtocols(input, expected);
 
         [ConditionalTheory]
@@ -396,7 +398,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Tests
         [InlineData("http2", HttpProtocols.Http2)]
         [InlineData("http1AndHttp2", HttpProtocols.Http1AndHttp2)]
         [OSSkipCondition(OperatingSystems.MacOSX)]
-        public void EndpointConfigSectionCanSetProtocols_NonMac(string input, HttpProtocols expected) =>
+        [MinimumOSVersion(OperatingSystems.Windows, WindowsVersions.Win81)]
+        public void EndpointConfigSectionCanSetProtocols_NonMacAndWin7(string input, HttpProtocols expected) =>
             EndpointConfigSectionCanSetProtocols(input, expected);
 
         private void EndpointConfigSectionCanSetProtocols(string input, HttpProtocols expected)
@@ -451,6 +454,27 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Tests
             Assert.True(ran1);
             Assert.True(ran2);
             Assert.True(ran3);
+        }
+
+        [Fact]
+        public void Latin1RequestHeadersReadFromConfig()
+        {
+            var options = CreateServerOptions();
+            var config =  new ConfigurationBuilder().AddInMemoryCollection().Build();
+
+            Assert.False(options.Latin1RequestHeaders);
+            options.Configure(config).Load();
+            Assert.False(options.Latin1RequestHeaders);
+
+            options = CreateServerOptions();
+            config = new ConfigurationBuilder().AddInMemoryCollection(new[]
+            {
+                new KeyValuePair<string, string>("Latin1RequestHeaders", "true"),
+            }).Build();
+
+            Assert.False(options.Latin1RequestHeaders);
+            options.Configure(config).Load();
+            Assert.True(options.Latin1RequestHeaders);
         }
 
         private static string GetCertificatePath()

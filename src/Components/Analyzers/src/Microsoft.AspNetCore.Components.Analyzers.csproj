@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
@@ -6,7 +6,7 @@
     <NoPackageAnalysis>true</NoPackageAnalysis>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Description>Roslyn analyzers for ASP.NET Core Components.</Description>
-    <IsShippingPackage>true</IsShippingPackage>
+    <IsPackable>true</IsPackable>
     <HasReferenceAssembly>false</HasReferenceAssembly>
   </PropertyGroup>
 
@@ -18,19 +18,7 @@
   <ItemGroup>
     <None Include="$(TargetPath)" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
     <None Include="build/netstandard2.0/*" Pack="true" PackagePath="build/netstandard2.0" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Update="Resources.Designer.cs">
-      <DesignTime>True</DesignTime>
-      <AutoGen>True</AutoGen>
-      <DependentUpon>Resources.resx</DependentUpon>
-    </Compile>
-
-    <EmbeddedResource Update="Resources.resx">
-      <Generator>ResXFileCodeGenerator</Generator>
-      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
-    </EmbeddedResource>
+    <None Include="buildTransitive/netstandard2.0/*" Pack="true" PackagePath="buildTransitive/netstandard2.0" />
   </ItemGroup>
 
 </Project>

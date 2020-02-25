@@ -3,10 +3,10 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -21,7 +21,6 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 using Microsoft.Net.Http.Headers;
 using Xunit;
-using ISystemClock = Microsoft.AspNetCore.ResponseCaching.ISystemClock;
 
 namespace Microsoft.AspNetCore.ResponseCaching.Tests
 {
@@ -59,6 +58,12 @@ namespace Microsoft.AspNetCore.ResponseCaching.Tests
             headers.Date = DateTimeOffset.UtcNow;
             headers.Headers["X-Value"] = guid;
 
+            var contentLength = context.Request.Query["ContentLength"];
+            if (!string.IsNullOrEmpty(contentLength))
+            {
+                headers.ContentLength = long.Parse(contentLength);
+            }
+
             if (context.Request.Method != "HEAD")
             {
                 return true;
@@ -71,6 +76,17 @@ namespace Microsoft.AspNetCore.ResponseCaching.Tests
             var uniqueId = Guid.NewGuid().ToString();
             if (TestRequestDelegate(context, uniqueId))
             {
+                await context.Response.WriteAsync(uniqueId);
+            }
+        }
+
+        internal static async Task TestRequestDelegateSendFileAsync(HttpContext context)
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "TestDocument.txt");
+            var uniqueId = Guid.NewGuid().ToString();
+            if (TestRequestDelegate(context, uniqueId))
+            {
+                await context.Response.SendFileAsync(path, 0, null);
                 await context.Response.WriteAsync(uniqueId);
             }
         }
@@ -116,6 +132,11 @@ namespace Microsoft.AspNetCore.ResponseCaching.Tests
                     {
                         contextAction?.Invoke(context);
                         return TestRequestDelegateWriteAsync(context);
+                    },
+                    context =>
+                    {
+                        contextAction?.Invoke(context);
+                        return TestRequestDelegateSendFileAsync(context);
                     },
                 });
         }
@@ -296,14 +317,6 @@ namespace Microsoft.AspNetCore.ResponseCaching.Tests
         internal LogLevel LogLevel { get; }
     }
 
-    internal class DummySendFileFeature : IHttpSendFileFeature
-    {
-        public Task SendFileAsync(string path, long offset, long? count, CancellationToken cancellation)
-        {
-            return Task.CompletedTask;
-        }
-    }
-
     internal class TestResponseCachingPolicyProvider : IResponseCachingPolicyProvider
     {
         public bool AllowCacheLookupValue { get; set; } = false;
@@ -375,21 +388,10 @@ namespace Microsoft.AspNetCore.ResponseCaching.Tests
             }
         }
 
-        public Task<IResponseCacheEntry> GetAsync(string key)
-        {
-            return Task.FromResult(Get(key));
-        }
-
         public void Set(string key, IResponseCacheEntry entry, TimeSpan validFor)
         {
             SetCount++;
             _storage[key] = entry;
-        }
-
-        public Task SetAsync(string key, IResponseCacheEntry entry, TimeSpan validFor)
-        {
-            Set(key, entry, validFor);
-            return Task.CompletedTask;
         }
     }
 

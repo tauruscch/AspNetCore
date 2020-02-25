@@ -91,6 +91,16 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             return 43;
         }
 
+        public ValueTask ValueTaskMethod()
+        {
+            return new ValueTask(Task.CompletedTask);
+        }
+
+        public ValueTask<int> ValueTaskValueMethod()
+        {
+            return new ValueTask<int>(43);
+        }
+
         [HubMethodName("RenamedMethod")]
         public int ATestMethodThatIsRenamedByTheAttribute()
         {
@@ -286,6 +296,30 @@ namespace Microsoft.AspNetCore.SignalR.Tests
                 // Wait for an item to appear first then return from the hub method to end the invocation
                 await input.WaitToReadAsync();
                 output.Complete();
+            }
+        }
+
+        public async Task UploadDoesWorkOnComplete(ChannelReader<string> source)
+        {
+            var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Context.Items[nameof(UploadDoesWorkOnComplete)] = tcs.Task;
+
+            try
+            {
+                while (await source.WaitToReadAsync())
+                {
+                    while (source.TryRead(out var item))
+                    {
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                tcs.SetException(ex);
+            }
+            finally
+            {
+                tcs.TrySetResult(42);
             }
         }
     }
@@ -535,6 +569,13 @@ namespace Microsoft.AspNetCore.SignalR.Tests
         }
     }
 
+    public class GenericMethodHub : Hub
+    {
+        public void GenericMethod<T>()
+        {
+        }
+    }
+
     public class DisposeTrackingHub : TestHub
     {
         private readonly TrackDispose _trackDispose;
@@ -626,7 +667,7 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             return new AsyncEnumerableImpl<string>(CounterAsyncEnumerable(count));
         }
 
-        public AsyncEnumerableImplChannelThrows<string> AsyncEnumerableIsPreferedOverChannelReader(int count)
+        public AsyncEnumerableImplChannelThrows<string> AsyncEnumerableIsPreferredOverChannelReader(int count)
         {
             return new AsyncEnumerableImplChannelThrows<string>(CounterChannel(count));
         }
@@ -899,6 +940,36 @@ namespace Microsoft.AspNetCore.SignalR.Tests
             return channel.Reader;
         }
 
+        public ChannelReader<int> CancelableStreamNullableParameter(int x, string y, CancellationToken token)
+        {
+            var channel = Channel.CreateBounded<int>(10);
+
+            Task.Run(async () =>
+            {
+                _tcsService.StartedMethod.SetResult(x);
+                await token.WaitForCancellationAsync();
+                channel.Writer.TryComplete();
+                _tcsService.EndMethod.SetResult(y);
+            });
+
+            return channel.Reader;
+        }
+
+        public ChannelReader<int> StreamNullableParameter(int x, int? input)
+        {
+            var channel = Channel.CreateBounded<int>(10);
+
+            Task.Run(() =>
+            {
+                _tcsService.StartedMethod.SetResult(x);
+                channel.Writer.TryComplete();
+                _tcsService.EndMethod.SetResult(input);
+                return Task.CompletedTask;
+            });
+
+            return channel.Reader;
+        }
+
         public ChannelReader<int> CancelableStreamMiddleParameter(int ignore, CancellationToken token, int ignore2)
         {
             var channel = Channel.CreateBounded<int>(10);
@@ -1049,5 +1120,33 @@ namespace Microsoft.AspNetCore.SignalR.Tests
         public bool TokenStateInConnected { get; set; }
 
         public bool TokenStateInDisconnected { get; set; }
+    }
+
+    public class CallerServiceHub : Hub
+    {
+        private readonly CallerService _service;
+
+        public CallerServiceHub(CallerService service)
+        {
+            _service = service;
+        }
+
+        public override Task OnConnectedAsync()
+        {
+            _service.SetCaller(Clients.Caller);
+            var tcs = (TaskCompletionSource<bool>)Context.Items["ConnectedTask"];
+            tcs?.TrySetResult(true);
+            return base.OnConnectedAsync();
+        }
+    }
+
+    public class CallerService
+    {
+        public IClientProxy Caller { get; private set; }
+
+        public void SetCaller(IClientProxy caller)
+        {
+            Caller = caller;
+        }
     }
 }

@@ -55,26 +55,28 @@ namespace Microsoft.AspNetCore.Hosting
             if (_exitedGracefully)
             {
                 // On Linux if the shutdown is triggered by SIGTERM then that's signaled with the 143 exit code.
-                // Suppress that since we shut down gracefully. https://github.com/aspnet/AspNetCore/issues/6526
+                // Suppress that since we shut down gracefully. https://github.com/dotnet/aspnetcore/issues/6526
                 Environment.ExitCode = 0;
             }
         }
 
         private void Shutdown()
         {
-            if (!_cts.IsCancellationRequested)
+            try
             {
-                if (!string.IsNullOrEmpty(_shutdownMessage))
+                if (!_cts.IsCancellationRequested)
                 {
-                    Console.WriteLine(_shutdownMessage);
-                }
-                try
-                {
+                    if (!string.IsNullOrEmpty(_shutdownMessage))
+                    {
+                        Console.WriteLine(_shutdownMessage);
+                    }
                     _cts.Cancel();
                 }
-                catch (ObjectDisposedException) { }
             }
-
+            // When hosting with IIS in-process, we detach the Console handle on main thread exit.
+            // Console.WriteLine may throw here as we are logging to console on ProcessExit.
+            // We catch and ignore all exceptions here. Do not log to Console in thie exception handler.
+            catch (Exception) {}
             // Wait on the given reset event
             _resetEvent.Wait();
         }

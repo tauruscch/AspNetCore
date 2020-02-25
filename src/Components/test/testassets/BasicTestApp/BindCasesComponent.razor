@@ -1,5 +1,7 @@
 <h3 id="bind-cases">Bind cases</h3>
 
+@* There are a mix of cases here using bind and bind-value for coverage *@
+
 <h2>Textbox</h2>
 <p>
     Initially blank:
@@ -32,7 +34,7 @@
 </p>
 <p>
     Nullable int:
-    <input id="textbox-nullable-int" @bind="textboxNullableIntValue" type="number" />
+    <input id="textbox-nullable-int" @bind-value="textboxNullableIntValue" type="number" />
     <span id="textbox-nullable-int-value">@textboxNullableIntValue</span>
     <input id="textbox-nullable-int-mirror" @bind="textboxNullableIntValue" readonly />
 </p>
@@ -50,7 +52,7 @@
 </p>
 <p>
     float:
-    <input id="textbox-float" @bind="textboxFloatValue" type="number" />
+    <input id="textbox-float" @bind-value="textboxFloatValue" type="number" />
     <span id="textbox-float-value">@textboxFloatValue</span>
     <input id="textbox-float-mirror" @bind="textboxFloatValue" readonly />
 </p>
@@ -74,7 +76,7 @@
 </p>
 <p>
     decimal:
-    <input id="textbox-decimal" @bind="textboxDecimalValue" type="number" />
+    <input id="textbox-decimal" @bind-value="textboxDecimalValue" type="number" />
     <span id="textbox-decimal-value">@textboxDecimalValue</span>
     <input id="textbox-decimal-mirror" @bind="textboxDecimalValue" readonly />
 </p>
@@ -119,7 +121,7 @@
 </p>
 <p>
     Nullable DateTime:
-    <input id="textbox-nullable-datetime" @bind="textboxNullableDateTimeValue" type="text" />
+    <input id="textbox-nullable-datetime" @bind-value="textboxNullableDateTimeValue" type="text" />
     <span id="textbox-nullable-datetime-value">@textboxNullableDateTimeValue</span>
     <input id="textbox-nullable-datetime-mirror" @bind="textboxNullableDateTimeValue" readonly />
 </p>
@@ -149,7 +151,7 @@
 </p>
 <p>
     DateTime (format):
-    <input id="textbox-datetime-format" @bind="textboxDateTimeFormatValue" type="text" @bind:format="MM-dd" />
+    <input id="textbox-datetime-format" @bind-value="textboxDateTimeFormatValue" type="text" @bind-value:format="MM-dd" />
     <span id="textbox-datetime-format-value">@textboxDateTimeFormatValue</span>
     <input id="textbox-datetime-format-mirror" @bind="textboxDateTimeFormatValue" readonly />
 </p>
@@ -161,7 +163,7 @@
 </p>
 <p>
     DateTime (format / invalid value):
-    <input id="textbox-datetime-format-invalid" @bind="textboxDateTimeFormatInvalidValue" type="text" @bind:format="MM-dd" />
+    <input id="textbox-datetime-format-invalid" @bind-value="textboxDateTimeFormatInvalidValue" type="text" @bind-value:format="MM-dd" />
     <span id="textbox-datetime-format-invalid-value">@textboxDateTimeFormatInvalidValue</span>
     <input id="textbox-datetime-format-invalid-mirror" @bind="textboxDateTimeFormatInvalidValue" readonly />
 </p>
@@ -227,6 +229,7 @@
     <select id="select-box" @bind="selectValue">
         <optgroup label="Some choices">
             <!-- Show it also works with optgroup -->
+            <option value="">Empty value</option>
             <option value=@SelectableValue.First>First choice</option>
             <option value=@SelectableValue.Second>Second choice</option>
             <option value=@SelectableValue.Third>Third choice</option>
@@ -244,12 +247,70 @@
 <p>
     <select id="select-markup-box" @bind="selectMarkupValue">
         <optgroup label="Some choices">
+            <option value="">Empty value</option>
             <option value="First">First choice</option>
             <option value="Second">Second choice</option>
             <option value="Third">Third choice</option>
         </optgroup>
     </select>
     <span id="select-markup-box-value">@selectMarkupValue</span>
+</p>
+
+<h2>Time related inputs (datetime-local, month, time)</h2>
+<h3>datetime-local</h3>
+<p>
+    DateTime:
+    <input id="datetime-local-textbox-datetime" @bind="dateTimeLocalTextboxDateTimeValue" type="datetime-local" />
+    <span id="datetime-local-textbox-datetime-value">@dateTimeLocalTextboxDateTimeValue</span>
+    <input id="datetime-local-textbox-datetime-mirror" @bind="dateTimeLocalTextboxDateTimeValue" readonly />
+</p>
+<p>
+    Nullable DateTime:
+    <input id="datetime-local-textbox-nullable-datetime" @bind-value="dateTimeLocalTextboxNullableDateTimeValue" type="datetime-local" />
+    <span id="datetime-local-textbox-nullable-datetime-value">@dateTimeLocalTextboxNullableDateTimeValue</span>
+    <input id="datetime-local-textbox-nullable-datetime-mirror" @bind="dateTimeLocalTextboxNullableDateTimeValue" readonly />
+</p>
+
+<h3>month</h3>
+<p>
+    DateTime:
+    <input id="month-textbox-datetime" @bind="monthTextboxDateTimeValue" type="month" />
+    <span id="month-textbox-datetime-value">@monthTextboxDateTimeValue</span>
+    <input id="month-textbox-datetime-mirror" @bind="monthTextboxDateTimeValue" readonly />
+</p>
+<p>
+    Nullable DateTime:
+    <input id="month-textbox-nullable-datetime" @bind-value="monthTextboxNullableDateTimeValue" type="month" />
+    <span id="month-textbox-nullable-datetime-value">@monthTextboxNullableDateTimeValue</span>
+    <input id="month-textbox-nullable-datetime-mirror" @bind="monthTextboxNullableDateTimeValue" readonly />
+</p>
+
+<h3>time</h3>
+<p>
+    DateTime:
+    <input id="time-textbox-datetime" @bind="timeTextboxDateTimeValue" type="time" />
+    <span id="time-textbox-datetime-value">@timeTextboxDateTimeValue</span>
+    <input id="time-textbox-datetime-mirror" @bind="timeTextboxDateTimeValue" readonly />
+</p>
+<p>
+    Nullable DateTime:
+    <input id="time-textbox-nullable-datetime" @bind-value="timeTextboxNullableDateTimeValue" type="time" />
+    <span id="time-textbox-nullable-datetime-value">@timeTextboxNullableDateTimeValue</span>
+    <input id="time-textbox-nullable-datetime-mirror" @bind="timeTextboxNullableDateTimeValue" readonly />
+</p>
+
+<h3>time with step (supports seconds)</h3>
+<p>
+    DateTime:
+    <input id="time-step-textbox-datetime" @bind="timeStepTextboxDateTimeValue" type="time" step="1" />
+    <span id="time-step-textbox-datetime-value">@timeStepTextboxDateTimeValue</span>
+    <input id="time-step-textbox-datetime-mirror" @bind="timeStepTextboxDateTimeValue" readonly />
+</p>
+<p>
+    Nullable DateTime:
+    <input id="time-step-textbox-nullable-datetime" @bind-value="timeStepTextboxNullableDateTimeValue" type="time" step="1" />
+    <span id="time-step-textbox-nullable-datetime-value">@timeStepTextboxNullableDateTimeValue</span>
+    <input id="time-step-textbox-nullable-datetime-mirror" @bind="timeStepTextboxNullableDateTimeValue" readonly />
 </p>
 
 @code {
@@ -295,10 +356,22 @@
     DateTime textboxDateTimeFormatInvalidValue = new DateTime(1985, 3, 4);
     DateTimeOffset? textboxNullableDateTimeOffsetFormatInvalidValue = null;
 
+    DateTime dateTimeLocalTextboxDateTimeValue = new DateTime(1985, 3, 4);
+    DateTime? dateTimeLocalTextboxNullableDateTimeValue = null;
+
+    DateTime monthTextboxDateTimeValue = new DateTime(1985, 3, 4);
+    DateTime? monthTextboxNullableDateTimeValue = null;
+
+    DateTime timeTextboxDateTimeValue = DateTime.Now.Date.Add(new TimeSpan(8, 5, 0));
+    DateTime? timeTextboxNullableDateTimeValue = null;
+
+    DateTime timeStepTextboxDateTimeValue = DateTime.Now.Date.Add(new TimeSpan(8, 5, 30));
+    DateTime? timeStepTextboxNullableDateTimeValue = null;
+
     bool includeFourthOption = false;
     enum SelectableValue { First, Second, Third, Fourth }
-    SelectableValue selectValue = SelectableValue.Second;
-    SelectableValue selectMarkupValue = SelectableValue.Second;
+    SelectableValue? selectValue = SelectableValue.Second;
+    SelectableValue? selectMarkupValue = SelectableValue.Second;
 
     void AddAndSelectNewSelectOption()
     {

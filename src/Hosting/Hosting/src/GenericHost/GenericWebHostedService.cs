@@ -167,11 +167,13 @@ namespace Microsoft.AspNetCore.Hosting
                 .InformationalVersion;
             model.ClrVersion = clrVersion;
             model.OperatingSystemDescription = RuntimeInformation.OSDescription;
+            model.ShowRuntimeDetails = showDetailedErrors;
 
             if (showDetailedErrors)
             {
                 var exceptionDetailProvider = new ExceptionDetailsProvider(
                     HostingEnvironment.ContentRootFileProvider,
+                    Logger,
                     sourceCodeLineCount: 6);
 
                 model.ErrorDetails = exceptionDetailProvider.GetDetails(exception);

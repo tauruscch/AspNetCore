@@ -9,6 +9,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipelines;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.HPack;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -21,7 +23,6 @@ using Microsoft.AspNetCore.Server.Kestrel.Core.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2.FlowControl;
-using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2.HPack;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure;
 using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.Logging;
@@ -34,7 +35,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
 {
     public class Http2TestBase : TestApplicationErrorLoggerLoggedTest, IDisposable, IHttpHeadersHandler
     {
-        protected static readonly int MaxRequestHeaderFieldSize = 8192;
+        protected static readonly int MaxRequestHeaderFieldSize = 16 * 1024;
         protected static readonly string _4kHeaderValue = new string('a', 4096);
 
         protected static readonly IEnumerable<KeyValuePair<string, string>> _browserRequestHeaders = new[]
@@ -378,9 +379,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
             };
         }
 
-        public override void Initialize(MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
+        public override void Initialize(TestContext context, MethodInfo methodInfo, object[] testMethodArguments, ITestOutputHelper testOutputHelper)
         {
-            base.Initialize(methodInfo, testMethodArguments, testOutputHelper);
+            base.Initialize(context, methodInfo, testMethodArguments, testOutputHelper);
 
             _serviceContext = new TestServiceContext(LoggerFactory, _mockKestrelTrace.Object)
             {
@@ -400,12 +401,12 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
             base.Dispose();
         }
 
-        void IHttpHeadersHandler.OnHeader(Span<byte> name, Span<byte> value)
+        void IHttpHeadersHandler.OnHeader(ReadOnlySpan<byte> name, ReadOnlySpan<byte> value)
         {
-            _decodedHeaders[name.GetAsciiStringNonNullCharacters()] = value.GetAsciiOrUTF8StringNonNullCharacters();
+            _decodedHeaders[name.GetAsciiStringNonNullCharacters()] = value.GetRequestHeaderStringNonNullCharacters(useLatin1: _serviceContext.ServerOptions.Latin1RequestHeaders);
         }
 
-        void IHttpHeadersHandler.OnHeadersComplete() { }
+        void IHttpHeadersHandler.OnHeadersComplete(bool endStream) { }
 
         protected void CreateConnection()
         {
@@ -687,7 +688,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
             await writableBuffer.FlushAsync().AsTask().DefaultTimeout();
         }
 
-        protected Task SendPreambleAsync() => SendAsync(new ArraySegment<byte>(Http2Connection.ClientPreface));
+        protected Task SendPreambleAsync() => SendAsync(Http2Connection.ClientPreface);
 
         protected async Task SendSettingsAsync()
         {
@@ -1112,12 +1113,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 var buffer = result.Buffer;
                 var consumed = buffer.Start;
                 var examined = buffer.Start;
+                var copyBuffer = buffer;
 
                 try
                 {
                     Assert.True(buffer.Length > 0);
 
-                    if (Http2FrameReader.ReadFrame(buffer, frame, maxFrameSize, out var framePayload))
+                    if (Http2FrameReader.TryReadFrame(ref buffer, frame, maxFrameSize, out var framePayload))
                     {
                         consumed = examined = framePayload.End;
                         frame.Payload = framePayload.ToArray();
@@ -1135,7 +1137,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
                 }
                 finally
                 {
-                    _bytesReceived += buffer.Slice(buffer.Start, consumed).Length;
+                    _bytesReceived += copyBuffer.Slice(copyBuffer.Start, consumed).Length;
                     _pair.Application.Input.AdvanceTo(consumed, examined);
                 }
             }
@@ -1281,6 +1283,16 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Tests
 
             // null means that we have no back pressure
             return bufferSize ?? 0;
+        }
+
+        public void OnStaticIndexedHeader(int index)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void OnStaticIndexedHeader(int index, ReadOnlySpan<byte> value)
+        {
+            throw new NotImplementedException();
         }
 
         internal class Http2FrameWithPayload : Http2Frame

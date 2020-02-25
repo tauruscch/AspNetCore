@@ -6,7 +6,6 @@ using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Analyzer.Testing;
 using Microsoft.AspNetCore.Testing;
-using Microsoft.AspNetCore.Testing.xunit;
 using Microsoft.CodeAnalysis;
 
 namespace Microsoft.AspNetCore.Analyzers
@@ -17,6 +16,11 @@ namespace Microsoft.AspNetCore.Analyzers
 
         public TestSource Read(string source)
         {
+            if (!source.EndsWith(".cs"))
+            {
+                source = source + ".cs";
+            }
+
             var filePath = Path.Combine(ProjectDirectory, "TestFiles", GetType().Name, source);
             if (!File.Exists(filePath))
             {
@@ -35,7 +39,7 @@ namespace Microsoft.AspNetCore.Analyzers
             }
 
             var read = Read(source);
-            return DiagnosticProject.Create(GetType().Assembly, new[] { read.Source, });
+            return AnalyzersDiagnosticAnalyzerRunner.CreateProjectWithReferencesInBinDir(GetType().Assembly, new[] { read.Source, });
         }
 
         public Task<Compilation> CreateCompilationAsync(string source)
@@ -52,7 +56,7 @@ namespace Microsoft.AspNetCore.Analyzers
             }
 
 // This test code needs to be updated to support distributed testing.
-// See https://github.com/aspnet/AspNetCore/issues/10422
+// See https://github.com/dotnet/aspnetcore/issues/10422
 #pragma warning disable 0618
             var solutionDirectory = TestPathUtilities.GetSolutionRootDirectory("Analyzers");
 #pragma warning restore 0618

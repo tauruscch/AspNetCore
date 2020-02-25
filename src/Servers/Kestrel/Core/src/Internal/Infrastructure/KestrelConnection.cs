@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 
 namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
 {
-    internal class KestrelConnection : IConnectionHeartbeatFeature, IConnectionCompleteFeature, IConnectionLifetimeNotificationFeature
+    internal abstract class KestrelConnection : IConnectionHeartbeatFeature, IConnectionCompleteFeature, IConnectionLifetimeNotificationFeature
     {
         private List<(Action<object> handler, object state)> _heartbeatHandlers;
         private readonly object _heartbeatLock = new object();
@@ -21,21 +21,22 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
 
         private readonly CancellationTokenSource _connectionClosingCts = new CancellationTokenSource();
         private readonly TaskCompletionSource<object> _completionTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected readonly long _id;
+        protected readonly ServiceContext _serviceContext;
 
-        public KestrelConnection(ConnectionContext connectionContext, ILogger logger)
+        public KestrelConnection(long id,
+                                 ServiceContext serviceContext,
+                                 IKestrelTrace logger)
         {
+            _id = id;
+            _serviceContext = serviceContext;
             Logger = logger;
-            TransportConnection = connectionContext;
 
-            connectionContext.Features.Set<IConnectionHeartbeatFeature>(this);
-            connectionContext.Features.Set<IConnectionCompleteFeature>(this);
-            connectionContext.Features.Set<IConnectionLifetimeNotificationFeature>(this);
             ConnectionClosedRequested = _connectionClosingCts.Token;
         }
 
-        private ILogger Logger { get; }
+        protected IKestrelTrace Logger { get; }
 
-        public ConnectionContext TransportConnection { get; set; }
         public CancellationToken ConnectionClosedRequested { get; set; }
         public Task ExecutionTask => _completionTcs.Task;
 
@@ -54,6 +55,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
                 }
             }
         }
+
+        public abstract BaseConnectionContext GetTransport();
 
         public void OnHeartbeat(Action<object> action, object state)
         {
@@ -107,14 +110,14 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
                 try
                 {
                     var task = entry.Key.Invoke(entry.Value);
-                    if (!ReferenceEquals(task, Task.CompletedTask))
+                    if (!task.IsCompletedSuccessfully)
                     {
                         return CompleteAsyncAwaited(task, onCompleted);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError(ex, "An error occured running an IConnectionCompleteFeature.OnCompleted callback.");
+                    Logger.LogError(ex, "An error occurred running an IConnectionCompleteFeature.OnCompleted callback.");
                 }
             }
 
@@ -129,7 +132,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "An error occured running an IConnectionCompleteFeature.OnCompleted callback.");
+                Logger.LogError(ex, "An error occurred running an IConnectionCompleteFeature.OnCompleted callback.");
             }
 
             while (onCompleted.TryPop(out var entry))
@@ -140,7 +143,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError(ex, "An error occured running an IConnectionCompleteFeature.OnCompleted callback.");
+                    Logger.LogError(ex, "An error occurred running an IConnectionCompleteFeature.OnCompleted callback.");
                 }
             }
         }
@@ -163,6 +166,16 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
             _completionTcs.TrySetResult(null);
 
             _connectionClosingCts.Dispose();
+        }
+
+        protected IDisposable BeginConnectionScope(BaseConnectionContext connectionContext)
+        {
+            if (Logger.IsEnabled(LogLevel.Critical))
+            {
+                return Logger.BeginScope(new ConnectionLogScope(connectionContext.ConnectionId));
+            }
+
+            return null;
         }
     }
 }

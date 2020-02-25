@@ -6,7 +6,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
-using Microsoft.AspNetCore.Testing.xunit;
+using Microsoft.AspNetCore.Testing;
 using Xunit;
 
 namespace Microsoft.AspNetCore.ApiAuthorization.IdentityServer.Configuration
@@ -59,7 +59,7 @@ namespace Microsoft.AspNetCore.ApiAuthorization.IdentityServer.Configuration
         }
 
         [ConditionalFact]
-        [SkipOnHelix("https://github.com/aspnet/AspNetCore/issues/6720")]
+        [SkipOnHelix("https://github.com/dotnet/aspnetcore/issues/6720")]
         public static void LoadFromStoreCert_SkipsCertificatesNotYetValid()
         {
             try
@@ -82,7 +82,7 @@ namespace Microsoft.AspNetCore.ApiAuthorization.IdentityServer.Configuration
         }
 
         [ConditionalFact]
-        [SkipOnHelix("https://github.com/aspnet/AspNetCore/issues/6720")]
+        [SkipOnHelix("https://github.com/dotnet/aspnetcore/issues/6720")]
         public static void LoadFromStoreCert_PrefersCertificatesCloserToExpirationDate()
         {
             try
@@ -105,7 +105,7 @@ namespace Microsoft.AspNetCore.ApiAuthorization.IdentityServer.Configuration
         }
 
         [ConditionalFact]
-        [SkipOnHelix("https://github.com/aspnet/AspNetCore/issues/6720")]
+        [SkipOnHelix("https://github.com/dotnet/aspnetcore/issues/6720")]
         public static void LoadFromStoreCert_SkipsExpiredCertificates()
         {
             try

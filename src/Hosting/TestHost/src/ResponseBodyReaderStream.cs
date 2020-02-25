@@ -20,6 +20,7 @@ namespace Microsoft.AspNetCore.TestHost
         private bool _aborted;
         private Exception _abortException;
 
+        private readonly object _abortLock = new object();
         private readonly Action _abortRequest;
         private readonly Action _readComplete;
         private readonly Pipe _pipe;
@@ -87,7 +88,6 @@ namespace Microsoft.AspNetCore.TestHost
 
             if (result.Buffer.IsEmpty && result.IsCompleted)
             {
-                _pipe.Reader.Complete();
                 _readComplete();
                 _readerComplete = true;
                 return 0;
@@ -125,17 +125,24 @@ namespace Microsoft.AspNetCore.TestHost
         internal void Abort(Exception innerException)
         {
             Contract.Requires(innerException != null);
-            _aborted = true;
-            _abortException = innerException;
+
+            lock (_abortLock)
+            {
+                _abortException = innerException;
+                _aborted = true;
+            }
+
             _pipe.Reader.CancelPendingRead();
-            _pipe.Reader.Complete();
         }
 
         private void CheckAborted()
         {
-            if (_aborted)
+            lock (_abortLock)
             {
-                throw new IOException(string.Empty, _abortException);
+                if (_aborted)
+                {
+                    throw new IOException(string.Empty, _abortException);
+                }
             }
         }
 
@@ -145,6 +152,9 @@ namespace Microsoft.AspNetCore.TestHost
             {
                 _abortRequest();
             }
+
+            _pipe.Reader.Complete();
+
             base.Dispose(disposing);
         }
     }

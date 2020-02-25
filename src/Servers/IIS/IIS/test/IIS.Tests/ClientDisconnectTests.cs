@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Server.IntegrationTesting;
 using Microsoft.AspNetCore.Testing;
-using Microsoft.AspNetCore.Testing.xunit;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
 using Xunit;
@@ -15,7 +14,7 @@ using Xunit;
 namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests
 {
     [SkipIfHostableWebCoreNotAvailable]
-    [OSSkipCondition(OperatingSystems.Windows, WindowsVersions.Win7, "https://github.com/aspnet/IISIntegration/issues/866")]
+    [MinimumOSVersion(OperatingSystems.Windows, WindowsVersions.Win8, SkipReason = "https://github.com/aspnet/IISIntegration/issues/866")]
     public class ClientDisconnectTests : StrictTestServerTests
     {
         [ConditionalFact]
@@ -226,7 +225,7 @@ namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests
         }
 
         [ConditionalFact]
-        [Flaky("https://github.com/aspnet/AspNetCore-Internal/issues/1817", FlakyOn.AzP.Windows)]
+        [Flaky("https://github.com/dotnet/aspnetcore-internal/issues/1817", FlakyOn.AzP.Windows)]
         public async Task ReaderThrowsResetExceptionOnInvalidBody()
         {
             var requestStartedCompletionSource = CreateTaskCompletionSource();

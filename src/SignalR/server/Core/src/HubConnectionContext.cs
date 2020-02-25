@@ -34,6 +34,8 @@ namespace Microsoft.AspNetCore.SignalR
         private readonly long _keepAliveInterval;
         private readonly long _clientTimeoutInterval;
         private readonly SemaphoreSlim _writeLock = new SemaphoreSlim(1);
+        private readonly bool _useAbsoluteClientTimeout;
+        private readonly object _receiveMessageTimeoutLock = new object();
 
         private StreamTracker _streamTracker;
         private long _lastSendTimeStamp = DateTime.UtcNow.Ticks;
@@ -41,8 +43,13 @@ namespace Microsoft.AspNetCore.SignalR
         private bool _receivedMessageThisInterval = false;
         private ReadOnlyMemory<byte> _cachedPingMessage;
         private bool _clientTimeoutActive;
-        private bool _connectionAborted;
+        private volatile bool _connectionAborted;
+        private volatile bool _allowReconnect = true;
         private int _streamBufferCapacity;
+        private long? _maxMessageSize;
+        private bool _receivedMessageTimeoutEnabled = false;
+        private long _receivedMessageElapsedTicks = 0;
+        private long _receivedMessageTimestamp;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="HubConnectionContext"/> class.
@@ -55,12 +62,18 @@ namespace Microsoft.AspNetCore.SignalR
             _keepAliveInterval = contextOptions.KeepAliveInterval.Ticks;
             _clientTimeoutInterval = contextOptions.ClientTimeoutInterval.Ticks;
             _streamBufferCapacity = contextOptions.StreamBufferCapacity;
+            _maxMessageSize = contextOptions.MaximumReceiveMessageSize;
 
             _connectionContext = connectionContext;
             _logger = loggerFactory.CreateLogger<HubConnectionContext>();
             ConnectionAborted = _connectionAbortedTokenSource.Token;
 
             HubCallerContext = new DefaultHubCallerContext(this);
+
+            if (AppContext.TryGetSwitch("Microsoft.AspNetCore.SignalR.UseAbsoluteClientTimeout", out var useAbsoluteClientTimeout))
+            {
+                _useAbsoluteClientTimeout = useAbsoluteClientTimeout;
+            }
         }
 
         internal StreamTracker StreamTracker
@@ -104,6 +117,9 @@ namespace Microsoft.AspNetCore.SignalR
         /// </summary>
         public virtual IDictionary<object, object> Items => _connectionContext.Items;
 
+        // Used by HubConnectionHandler to determine whether to set CloseMessage.AllowReconnect.
+        internal bool AllowReconnect => _allowReconnect;
+
         // Used by HubConnectionHandler
         internal PipeReader Input => _connectionContext.Transport.Input;
 
@@ -125,7 +141,7 @@ namespace Microsoft.AspNetCore.SignalR
             // Try to grab the lock synchronously, if we fail, go to the slower path
             if (!_writeLock.Wait(0))
             {
-                return new ValueTask(WriteSlowAsync(message));
+                return new ValueTask(WriteSlowAsync(message, cancellationToken));
             }
 
             if (_connectionAborted)
@@ -135,7 +151,7 @@ namespace Microsoft.AspNetCore.SignalR
             }
 
             // This method should never throw synchronously
-            var task = WriteCore(message);
+            var task = WriteCore(message, cancellationToken);
 
             // The write didn't complete synchronously so await completion
             if (!task.IsCompletedSuccessfully)
@@ -161,7 +177,7 @@ namespace Microsoft.AspNetCore.SignalR
             // Try to grab the lock synchronously, if we fail, go to the slower path
             if (!_writeLock.Wait(0))
             {
-                return new ValueTask(WriteSlowAsync(message));
+                return new ValueTask(WriteSlowAsync(message, cancellationToken));
             }
 
             if (_connectionAborted)
@@ -171,7 +187,7 @@ namespace Microsoft.AspNetCore.SignalR
             }
 
             // This method should never throw synchronously
-            var task = WriteCore(message);
+            var task = WriteCore(message, cancellationToken);
 
             // The write didn't complete synchronously so await completion
             if (!task.IsCompletedSuccessfully)
@@ -185,7 +201,7 @@ namespace Microsoft.AspNetCore.SignalR
             return default;
         }
 
-        private ValueTask<FlushResult> WriteCore(HubMessage message)
+        private ValueTask<FlushResult> WriteCore(HubMessage message, CancellationToken cancellationToken)
         {
             try
             {
@@ -193,32 +209,32 @@ namespace Microsoft.AspNetCore.SignalR
                 // write it without caching.
                 Protocol.WriteMessage(message, _connectionContext.Transport.Output);
 
-                return _connectionContext.Transport.Output.FlushAsync();
+                return _connectionContext.Transport.Output.FlushAsync(cancellationToken);
             }
             catch (Exception ex)
             {
                 Log.FailedWritingMessage(_logger, ex);
 
-                Abort();
+                AbortAllowReconnect();
 
                 return new ValueTask<FlushResult>(new FlushResult(isCanceled: false, isCompleted: true));
             }
         }
 
-        private ValueTask<FlushResult> WriteCore(SerializedHubMessage message)
+        private ValueTask<FlushResult> WriteCore(SerializedHubMessage message, CancellationToken cancellationToken)
         {
             try
             {
                 // Grab a preserialized buffer for this protocol.
                 var buffer = message.GetSerializedMessage(Protocol);
 
-                return _connectionContext.Transport.Output.WriteAsync(buffer);
+                return _connectionContext.Transport.Output.WriteAsync(buffer, cancellationToken);
             }
             catch (Exception ex)
             {
                 Log.FailedWritingMessage(_logger, ex);
 
-                Abort();
+                AbortAllowReconnect();
 
                 return new ValueTask<FlushResult>(new FlushResult(isCanceled: false, isCompleted: true));
             }
@@ -234,7 +250,7 @@ namespace Microsoft.AspNetCore.SignalR
             {
                 Log.FailedWritingMessage(_logger, ex);
 
-                Abort();
+                AbortAllowReconnect();
             }
             finally
             {
@@ -243,10 +259,10 @@ namespace Microsoft.AspNetCore.SignalR
             }
         }
 
-        private async Task WriteSlowAsync(HubMessage message)
+        private async Task WriteSlowAsync(HubMessage message, CancellationToken cancellationToken)
         {
             // Failed to get the lock immediately when entering WriteAsync so await until it is available
-            await _writeLock.WaitAsync();
+            await _writeLock.WaitAsync(cancellationToken);
 
             try
             {
@@ -255,12 +271,12 @@ namespace Microsoft.AspNetCore.SignalR
                     return;
                 }
 
-                await WriteCore(message);
+                await WriteCore(message, cancellationToken);
             }
             catch (Exception ex)
             {
                 Log.FailedWritingMessage(_logger, ex);
-                Abort();
+                AbortAllowReconnect();
             }
             finally
             {
@@ -268,7 +284,7 @@ namespace Microsoft.AspNetCore.SignalR
             }
         }
 
-        private async Task WriteSlowAsync(SerializedHubMessage message)
+        private async Task WriteSlowAsync(SerializedHubMessage message, CancellationToken cancellationToken)
         {
             // Failed to get the lock immediately when entering WriteAsync so await until it is available
             await _writeLock.WaitAsync();
@@ -280,12 +296,12 @@ namespace Microsoft.AspNetCore.SignalR
                     return;
                 }
 
-                await WriteCore(message);
+                await WriteCore(message, cancellationToken);
             }
             catch (Exception ex)
             {
                 Log.FailedWritingMessage(_logger, ex);
-                Abort();
+                AbortAllowReconnect();
             }
             finally
             {
@@ -302,6 +318,7 @@ namespace Microsoft.AspNetCore.SignalR
                 return default;
             }
 
+            // TODO: cancel?
             return new ValueTask(TryWritePingSlowAsync());
         }
 
@@ -321,7 +338,7 @@ namespace Microsoft.AspNetCore.SignalR
             catch (Exception ex)
             {
                 Log.FailedWritingMessage(_logger, ex);
-                Abort();
+                AbortAllowReconnect();
             }
             finally
             {
@@ -357,7 +374,16 @@ namespace Microsoft.AspNetCore.SignalR
         /// </summary>
         public virtual void Abort()
         {
+            _allowReconnect = false;
+            AbortAllowReconnect();
+        }
+
+        private void AbortAllowReconnect()
+        {
             _connectionAborted = true;
+            // Cancel any current writes or writes that are about to happen and have already gone past the _connectionAborted bool
+            // We have to do this outside of the lock otherwise it could hang if the write is observing backpressure
+            _connectionContext.Transport.Output.CancelPendingFlush();
 
             // If we already triggered the token then noop, this isn't thread safe but it's good enough
             // to avoid spawning a new task in the most common cases
@@ -406,10 +432,20 @@ namespace Microsoft.AspNetCore.SignalR
 
                             if (!buffer.IsEmpty)
                             {
-                                if (HandshakeProtocol.TryParseRequestMessage(ref buffer, out var handshakeRequestMessage))
+                                var segment = buffer;
+                                var overLength = false;
+
+                                if (_maxMessageSize != null && buffer.Length > _maxMessageSize.Value)
+                                {
+                                    // We give the parser a sliding window of the default message size
+                                    segment = segment.Slice(segment.Start, _maxMessageSize.Value);
+                                    overLength = true;
+                                }
+
+                                if (HandshakeProtocol.TryParseRequestMessage(ref segment, out var handshakeRequestMessage))
                                 {
                                     // We parsed the handshake
-                                    consumed = buffer.Start;
+                                    consumed = segment.Start;
                                     examined = consumed;
 
                                     Protocol = protocolResolver.GetProtocol(handshakeRequestMessage.Protocol, supportedProtocols);
@@ -461,6 +497,12 @@ namespace Microsoft.AspNetCore.SignalR
                                     await WriteHandshakeResponseAsync(HandshakeResponseMessage.Empty);
                                     return true;
                                 }
+                                else if (overLength)
+                                {
+                                    Log.HandshakeSizeLimitExceeded(_logger, _maxMessageSize.Value);
+                                    await WriteHandshakeResponseAsync(new HandshakeResponseMessage("Handshake was canceled."));
+                                    return false;
+                                }
                             }
 
                             if (result.IsCompleted)
@@ -496,8 +538,22 @@ namespace Microsoft.AspNetCore.SignalR
         // Used by the HubConnectionHandler only
         internal Task AbortAsync()
         {
-            Abort();
+            AbortAllowReconnect();
+
+            // Acquire lock to make sure all writes are completed
+            if (!_writeLock.Wait(0))
+            {
+                return AbortAsyncSlow();
+            }
+            _writeLock.Release();
             return _abortCompletedTcs.Task;
+        }
+
+        private async Task AbortAsyncSlow()
+        {
+            await _writeLock.WaitAsync();
+            _writeLock.Release();
+            await _abortCompletedTcs.Task;
         }
 
         private void KeepAliveTick()
@@ -536,17 +592,41 @@ namespace Microsoft.AspNetCore.SignalR
 
         private void CheckClientTimeout()
         {
-            // If it's been too long since we've heard from the client, then close this
-            if (DateTime.UtcNow.Ticks - Volatile.Read(ref _lastReceivedTimeStamp) > _clientTimeoutInterval)
+            if (Debugger.IsAttached)
             {
-                if (!_receivedMessageThisInterval)
-                {
-                    Log.ClientTimeout(_logger, TimeSpan.FromTicks(_clientTimeoutInterval));
-                    Abort();
-                }
+                return;
+            }
 
-                _receivedMessageThisInterval = false;
-                Volatile.Write(ref _lastReceivedTimeStamp, DateTime.UtcNow.Ticks);
+            if (_useAbsoluteClientTimeout)
+            {
+                // If it's been too long since we've heard from the client, then close this
+                if (DateTime.UtcNow.Ticks - Volatile.Read(ref _lastReceivedTimeStamp) > _clientTimeoutInterval)
+                {
+                    if (!_receivedMessageThisInterval)
+                    {
+                        Log.ClientTimeout(_logger, TimeSpan.FromTicks(_clientTimeoutInterval));
+                        AbortAllowReconnect();
+                    }
+
+                    _receivedMessageThisInterval = false;
+                    Volatile.Write(ref _lastReceivedTimeStamp, DateTime.UtcNow.Ticks);
+                }
+            }
+            else
+            {
+                lock (_receiveMessageTimeoutLock)
+                {
+                    if (_receivedMessageTimeoutEnabled)
+                    {
+                        _receivedMessageElapsedTicks = DateTime.UtcNow.Ticks - _receivedMessageTimestamp;
+
+                        if (_receivedMessageElapsedTicks >= _clientTimeoutInterval)
+                        {
+                            Log.ClientTimeout(_logger, TimeSpan.FromTicks(_clientTimeoutInterval));
+                            AbortAllowReconnect();
+                        }
+                    }
+                }
             }
         }
 
@@ -565,6 +645,12 @@ namespace Microsoft.AspNetCore.SignalR
             finally
             {
                 _ = InnerAbortConnection(connection);
+
+                // Use _streamTracker to avoid lazy init from StreamTracker getter if it doesn't exist
+                if (connection._streamTracker != null)
+                {
+                    connection._streamTracker.CompleteAll(new OperationCanceledException("The underlying connection was closed."));
+                }
             }
 
             static async Task InnerAbortConnection(HubConnectionContext connection)
@@ -589,11 +675,40 @@ namespace Microsoft.AspNetCore.SignalR
             _receivedMessageThisInterval = true;
         }
 
+        internal void BeginClientTimeout()
+        {
+            // check if new timeout behavior is in use
+            if (!_useAbsoluteClientTimeout)
+            {
+                lock (_receiveMessageTimeoutLock)
+                {
+                    _receivedMessageTimeoutEnabled = true;
+                    _receivedMessageTimestamp = DateTime.UtcNow.Ticks;
+                }
+            }
+        }
+
+        internal void StopClientTimeout()
+        {
+            // check if new timeout behavior is in use
+            if (!_useAbsoluteClientTimeout)
+            {
+                lock (_receiveMessageTimeoutLock)
+                {
+                    // we received a message so stop the timer and reset it
+                    // it will resume after the message has been processed
+                    _receivedMessageElapsedTicks = 0;
+                    _receivedMessageTimestamp = 0;
+                    _receivedMessageTimeoutEnabled = false;
+                }
+            }
+        }
+
         private static class Log
         {
             // Category: HubConnectionContext
             private static readonly Action<ILogger, string, Exception> _handshakeComplete =
-                LoggerMessage.Define<string>(LogLevel.Information, new EventId(1, "HandshakeComplete"), "Completed connection handshake. Using HubProtocol '{Protocol}'.");
+                LoggerMessage.Define<string>(LogLevel.Debug, new EventId(1, "HandshakeComplete"), "Completed connection handshake. Using HubProtocol '{Protocol}'.");
 
             private static readonly Action<ILogger, Exception> _handshakeCanceled =
                 LoggerMessage.Define(LogLevel.Debug, new EventId(2, "HandshakeCanceled"), "Handshake was canceled.");
@@ -605,19 +720,22 @@ namespace Microsoft.AspNetCore.SignalR
                 LoggerMessage.Define(LogLevel.Debug, new EventId(4, "TransportBufferFull"), "Unable to send Ping message to client, the transport buffer is full.");
 
             private static readonly Action<ILogger, Exception> _handshakeFailed =
-                LoggerMessage.Define(LogLevel.Error, new EventId(5, "HandshakeFailed"), "Failed connection handshake.");
+                LoggerMessage.Define(LogLevel.Debug, new EventId(5, "HandshakeFailed"), "Failed connection handshake.");
 
             private static readonly Action<ILogger, Exception> _failedWritingMessage =
-                LoggerMessage.Define(LogLevel.Error, new EventId(6, "FailedWritingMessage"), "Failed writing message. Aborting connection.");
+                LoggerMessage.Define(LogLevel.Debug, new EventId(6, "FailedWritingMessage"), "Failed writing message. Aborting connection.");
 
             private static readonly Action<ILogger, string, int, Exception> _protocolVersionFailed =
-                LoggerMessage.Define<string, int>(LogLevel.Warning, new EventId(7, "ProtocolVersionFailed"), "Server does not support version {Version} of the {Protocol} protocol.");
+                LoggerMessage.Define<string, int>(LogLevel.Debug, new EventId(7, "ProtocolVersionFailed"), "Server does not support version {Version} of the {Protocol} protocol.");
 
             private static readonly Action<ILogger, Exception> _abortFailed =
                 LoggerMessage.Define(LogLevel.Trace, new EventId(8, "AbortFailed"), "Abort callback failed.");
 
             private static readonly Action<ILogger, int, Exception> _clientTimeout =
                 LoggerMessage.Define<int>(LogLevel.Debug, new EventId(9, "ClientTimeout"), "Client timeout ({ClientTimeout}ms) elapsed without receiving a message from the client. Closing connection.");
+
+            private static readonly Action<ILogger, long, Exception> _handshakeSizeLimitExceeded =
+                LoggerMessage.Define<long>(LogLevel.Debug, new EventId(10, "HandshakeSizeLimitExceeded"), "The maximum message size of {MaxMessageSize}B was exceeded while parsing the Handshake. The message size can be configured in AddHubOptions.");
 
             public static void HandshakeComplete(ILogger logger, string hubProtocol)
             {
@@ -662,6 +780,11 @@ namespace Microsoft.AspNetCore.SignalR
             public static void ClientTimeout(ILogger logger, TimeSpan timeout)
             {
                 _clientTimeout(logger, (int)timeout.TotalMilliseconds, null);
+            }
+
+            public static void HandshakeSizeLimitExceeded(ILogger logger, long maxMessageSize)
+            {
+                _handshakeSizeLimitExceeded(logger, maxMessageSize, null);
             }
         }
     }

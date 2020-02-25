@@ -3,14 +3,23 @@
 
 using System;
 using System.Runtime.InteropServices;
+#if !IGNITOR
 using Microsoft.AspNetCore.Components.Rendering;
+#endif
 
+#if IGNITOR
+namespace Ignitor
+#else
 namespace Microsoft.AspNetCore.Components.RenderTree
+#endif
 {
     /// <summary>
-    /// Represents an entry in a tree of user interface (UI) items.
+    /// Types in the Microsoft.AspNetCore.Components.RenderTree are not recommended for use outside
+    /// of the Blazor framework. These types will change in future release.
     /// </summary>
-    [StructLayout(LayoutKind.Explicit)]
+    //
+    // Represents an entry in a tree of user interface (UI) items.
+    [StructLayout(LayoutKind.Explicit, Pack = 4)]
     public readonly struct RenderTreeFrame
     {
         // Note that the struct layout has to be valid in both 32-bit and 64-bit runtime platforms,
@@ -24,8 +33,8 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         // Offset   Type
         // ------   ----
         // 0-3      Int32 (sequence number)
-        // 4-7      Int32 (frame type)
-        // 8-15     Value types (usage varies by frame type)
+        // 4-5      Int16 (frame type)
+        // 6-15     Value types (usage varies by frame type)
         // 16-23    Reference type (usage varies by frame type)
         // 24-31    Reference type (usage varies by frame type)
         // 32-39    Reference type (usage varies by frame type)
@@ -90,7 +99,7 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         /// If the <see cref="FrameType"/> property equals <see cref="RenderTreeFrameType.Attribute"/>
         /// gets the ID of the corresponding event handler, if any.
         /// </summary>
-        [FieldOffset(8)] public readonly int AttributeEventHandlerId;
+        [FieldOffset(8)] public readonly ulong AttributeEventHandlerId;
 
         /// <summary>
         /// If the <see cref="FrameType"/> property equals <see cref="RenderTreeFrameType.Attribute"/>,
@@ -178,7 +187,7 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         /// If the <see cref="FrameType"/> property equals <see cref="RenderTreeFrameType.ElementReferenceCapture"/>,
         /// gets the action that writes the reference to its target. Otherwise, the value is undefined.
         /// </summary>
-        [FieldOffset(24)] public readonly Action<ElementRef> ElementReferenceCaptureAction;
+        [FieldOffset(24)] public readonly Action<ElementReference> ElementReferenceCaptureAction;
 
         // --------------------------------------------------------------------------------
         // RenderTreeFrameType.ComponentReferenceCapture
@@ -267,7 +276,7 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         }
 
         // Attribute constructor
-        private RenderTreeFrame(int sequence, string attributeName, object attributeValue, int attributeEventHandlerId, string attributeEventUpdatesAttributeName)
+        private RenderTreeFrame(int sequence, string attributeName, object attributeValue, ulong attributeEventHandlerId, string attributeEventUpdatesAttributeName)
             : this()
         {
             FrameType = RenderTreeFrameType.Attribute;
@@ -279,7 +288,7 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         }
 
         // Element reference capture constructor
-        private RenderTreeFrame(int sequence, Action<ElementRef> elementReferenceCaptureAction, string elementReferenceCaptureId)
+        private RenderTreeFrame(int sequence, Action<ElementReference> elementReferenceCaptureAction, string elementReferenceCaptureId)
             : this()
         {
             FrameType = RenderTreeFrameType.ElementReferenceCapture;
@@ -319,7 +328,7 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         internal static RenderTreeFrame Region(int sequence)
             => new RenderTreeFrame(sequence, regionSubtreeLength: 0);
 
-        internal static RenderTreeFrame ElementReferenceCapture(int sequence, Action<ElementRef> elementReferenceCaptureAction)
+        internal static RenderTreeFrame ElementReferenceCapture(int sequence, Action<ElementReference> elementReferenceCaptureAction)
             => new RenderTreeFrame(sequence, elementReferenceCaptureAction: elementReferenceCaptureAction, elementReferenceCaptureId: null);
 
         internal static RenderTreeFrame ComponentReferenceCapture(int sequence, Action<object> componentReferenceCaptureAction, int parentFrameIndex)
@@ -337,7 +346,7 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         internal RenderTreeFrame WithComponent(ComponentState componentState)
             => new RenderTreeFrame(Sequence, componentSubtreeLength: ComponentSubtreeLength, ComponentType, componentState, ComponentKey);
 
-        internal RenderTreeFrame WithAttributeEventHandlerId(int eventHandlerId)
+        internal RenderTreeFrame WithAttributeEventHandlerId(ulong eventHandlerId)
             => new RenderTreeFrame(Sequence, attributeName: AttributeName, AttributeValue, eventHandlerId, AttributeEventUpdatesAttributeName);
 
         internal RenderTreeFrame WithAttributeValue(object attributeValue)

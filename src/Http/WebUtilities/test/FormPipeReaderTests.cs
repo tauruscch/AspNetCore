@@ -1,6 +1,7 @@
 // Copyright (c) .NET Foundation. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
@@ -36,7 +37,7 @@ namespace Microsoft.AspNetCore.WebUtilities
         }
 
         [Fact]
-        public async Task ReadFormAsync_EmptyValuedAtEndAllowed()
+        public async Task ReadFormAsync_EmptyValueAtEndAllowed()
         {
             var bodyPipe = await MakePipeReader("foo=");
 
@@ -46,9 +47,30 @@ namespace Microsoft.AspNetCore.WebUtilities
         }
 
         [Fact]
-        public async Task ReadFormAsync_EmptyValuedWithAdditionalEntryAllowed()
+        public async Task ReadFormAsync_EmptyValueWithoutEqualsAtEndAllowed()
+        {
+            var bodyPipe = await MakePipeReader("foo");
+
+            var formCollection = await ReadFormAsync(new FormPipeReader(bodyPipe));
+
+            Assert.Equal("", formCollection["foo"].ToString());
+        }
+
+        [Fact]
+        public async Task ReadFormAsync_EmptyValueWithAdditionalEntryAllowed()
         {
             var bodyPipe = await MakePipeReader("foo=&baz=2");
+
+            var formCollection = await ReadFormAsync(new FormPipeReader(bodyPipe));
+
+            Assert.Equal("", formCollection["foo"].ToString());
+            Assert.Equal("2", formCollection["baz"].ToString());
+        }
+
+        [Fact]
+        public async Task ReadFormAsync_EmptyValueWithoutEqualsWithAdditionalEntryAllowed()
+        {
+            var bodyPipe = await MakePipeReader("foo&baz=2");
 
             var formCollection = await ReadFormAsync(new FormPipeReader(bodyPipe));
 
@@ -72,21 +94,32 @@ namespace Microsoft.AspNetCore.WebUtilities
         [Fact]
         public async Task ReadFormAsync_ValueCountLimitExceeded_Throw()
         {
-            var bodyPipe = await MakePipeReader("foo=1&baz=2&bar=3&baz=4&baf=5");
+            var content = "foo=1&baz=2&bar=3&baz=4&baf=5";
+            var bodyPipe = await MakePipeReader(content);
 
             var exception = await Assert.ThrowsAsync<InvalidDataException>(
                 () => ReadFormAsync(new FormPipeReader(bodyPipe) { ValueCountLimit = 3 }));
             Assert.Equal("Form value count limit 3 exceeded.", exception.Message);
+
+            // The body pipe is still readable and has not advanced.
+            var readResult = await bodyPipe.ReadAsync();
+            Assert.Equal(Encoding.UTF8.GetBytes(content), readResult.Buffer.ToArray());
         }
 
         [Fact]
         public async Task ReadFormAsync_ValueCountLimitExceededSameKey_Throw()
         {
-            var bodyPipe = await MakePipeReader("baz=1&baz=2&baz=3&baz=4");
+            var content = "baz=1&baz=2&baz=3&baz=4";
+            var bodyPipe = await MakePipeReader(content);
 
             var exception = await Assert.ThrowsAsync<InvalidDataException>(
                 () => ReadFormAsync(new FormPipeReader(bodyPipe) { ValueCountLimit = 3 }));
             Assert.Equal("Form value count limit 3 exceeded.", exception.Message);
+
+
+            // The body pipe is still readable and has not advanced.
+            var readResult = await bodyPipe.ReadAsync();
+            Assert.Equal(Encoding.UTF8.GetBytes(content), readResult.Buffer.ToArray());
         }
 
         [Fact]
@@ -105,11 +138,16 @@ namespace Microsoft.AspNetCore.WebUtilities
         [Fact]
         public async Task ReadFormAsync_KeyLengthLimitExceeded_Throw()
         {
-            var bodyPipe = await MakePipeReader("foo=1&baz12345678=2");
+            var content = "foo=1&baz12345678=2";
+            var bodyPipe = await MakePipeReader(content);
 
             var exception = await Assert.ThrowsAsync<InvalidDataException>(
                 () => ReadFormAsync(new FormPipeReader(bodyPipe) { KeyLengthLimit = 10 }));
             Assert.Equal("Form key length limit 10 exceeded.", exception.Message);
+
+            // The body pipe is still readable and has not advanced.
+            var readResult = await bodyPipe.ReadAsync();
+            Assert.Equal(Encoding.UTF8.GetBytes(content), readResult.Buffer.ToArray());
         }
 
         [Fact]
@@ -128,11 +166,16 @@ namespace Microsoft.AspNetCore.WebUtilities
         [Fact]
         public async Task ReadFormAsync_ValueLengthLimitExceeded_Throw()
         {
-            var bodyPipe = await MakePipeReader("foo=1&baz=12345678901");
+            var content = "foo=1&baz=12345678901";
+            var bodyPipe = await MakePipeReader(content);
 
             var exception = await Assert.ThrowsAsync<InvalidDataException>(
                 () => ReadFormAsync(new FormPipeReader(bodyPipe) { ValueLengthLimit = 10 }));
             Assert.Equal("Form value length limit 10 exceeded.", exception.Message);
+
+            // The body pipe is still readable and has not advanced.
+            var readResult = await bodyPipe.ReadAsync();
+            Assert.Equal(Encoding.UTF8.GetBytes(content), readResult.Buffer.ToArray());
         }
 
         // https://en.wikipedia.org/wiki/Percent-encoding
@@ -152,15 +195,6 @@ namespace Microsoft.AspNetCore.WebUtilities
             Assert.Equal(expectedValue, form[key]);
         }
 
-        public static TheoryData<Encoding> Encodings =>
-                 new TheoryData<Encoding>
-                 {
-                     { Encoding.UTF8 },
-                     { Encoding.UTF32 },
-                     { Encoding.ASCII },
-                     { Encoding.Unicode }
-                 };
-
         [Theory]
         [MemberData(nameof(Encodings))]
         public void TryParseFormValues_SingleSegmentWorks(Encoding encoding)
@@ -171,6 +205,7 @@ namespace Microsoft.AspNetCore.WebUtilities
             var formReader = new FormPipeReader(null, encoding);
 
             formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
 
             Assert.Equal(2, accumulator.KeyCount);
             var dict = accumulator.GetResults();
@@ -180,7 +215,7 @@ namespace Microsoft.AspNetCore.WebUtilities
 
         [Theory]
         [MemberData(nameof(Encodings))]
-        public void TryParseFormValues_MultiSegmentWorks(Encoding encoding)
+        public void TryParseFormValues_Works(Encoding encoding)
         {
             var readOnlySequence = ReadOnlySequenceFactory.SingleSegmentFactory.CreateWithContent(encoding.GetBytes("foo=bar&baz=boo&t="));
 
@@ -188,6 +223,7 @@ namespace Microsoft.AspNetCore.WebUtilities
 
             var formReader = new FormPipeReader(null, encoding);
             formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
 
             Assert.Equal(3, accumulator.KeyCount);
             var dict = accumulator.GetResults();
@@ -198,14 +234,59 @@ namespace Microsoft.AspNetCore.WebUtilities
 
         [Theory]
         [MemberData(nameof(Encodings))]
-        public void TryParseFormValues_MultiSegmentSplitAcrossSegmentsWorks(Encoding encoding)
+        public void TryParseFormValues_LimitsCanBeLarge(Encoding encoding)
         {
             var readOnlySequence = ReadOnlySequenceFactory.SingleSegmentFactory.CreateWithContent(encoding.GetBytes("foo=bar&baz=boo&t="));
 
             KeyValueAccumulator accumulator = default;
 
             var formReader = new FormPipeReader(null, encoding);
+            formReader.KeyLengthLimit = int.MaxValue;
+            formReader.ValueLengthLimit = int.MaxValue;
+            formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: false);
             formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
+
+            Assert.Equal(3, accumulator.KeyCount);
+            var dict = accumulator.GetResults();
+            Assert.Equal("bar", dict["foo"]);
+            Assert.Equal("boo", dict["baz"]);
+            Assert.Equal("", dict["t"]);
+        }
+
+        [Theory]
+        [MemberData(nameof(Encodings))]
+        public void TryParseFormValues_SplitAcrossSegmentsWorks(Encoding encoding)
+        {
+            var readOnlySequence = ReadOnlySequenceFactory.SegmentPerByteFactory.CreateWithContent(encoding.GetBytes("foo=bar&baz=boo&t="));
+
+            KeyValueAccumulator accumulator = default;
+
+            var formReader = new FormPipeReader(null, encoding);
+            formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
+
+            Assert.Equal(3, accumulator.KeyCount);
+            var dict = accumulator.GetResults();
+            Assert.Equal("bar", dict["foo"]);
+            Assert.Equal("boo", dict["baz"]);
+            Assert.Equal("", dict["t"]);
+        }
+
+        [Theory]
+        [MemberData(nameof(Encodings))]
+        public void TryParseFormValues_SplitAcrossSegmentsWorks_LimitsCanBeLarge(Encoding encoding)
+        {
+            var readOnlySequence = ReadOnlySequenceFactory.SegmentPerByteFactory.CreateWithContent(encoding.GetBytes("foo=bar&baz=boo&t="));
+
+            KeyValueAccumulator accumulator = default;
+
+            var formReader = new FormPipeReader(null, encoding);
+            formReader.KeyLengthLimit = int.MaxValue;
+            formReader.ValueLengthLimit = int.MaxValue;
+            formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: false);
+            formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
 
             Assert.Equal(3, accumulator.KeyCount);
             var dict = accumulator.GetResults();
@@ -218,12 +299,13 @@ namespace Microsoft.AspNetCore.WebUtilities
         [MemberData(nameof(Encodings))]
         public void TryParseFormValues_MultiSegmentWithArrayPoolAcrossSegmentsWorks(Encoding encoding)
         {
-            var readOnlySequence = ReadOnlySequenceFactory.SingleSegmentFactory.CreateWithContent(encoding.GetBytes("foo=bar&baz=bo" + new string('a', 128)));
+            var readOnlySequence = ReadOnlySequenceFactory.SegmentPerByteFactory.CreateWithContent(encoding.GetBytes("foo=bar&baz=bo" + new string('a', 128)));
 
             KeyValueAccumulator accumulator = default;
 
             var formReader = new FormPipeReader(null, encoding);
             formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
 
             Assert.Equal(2, accumulator.KeyCount);
             var dict = accumulator.GetResults();
@@ -235,12 +317,13 @@ namespace Microsoft.AspNetCore.WebUtilities
         [MemberData(nameof(Encodings))]
         public void TryParseFormValues_MultiSegmentSplitAcrossSegmentsWithPlusesWorks(Encoding encoding)
         {
-            var readOnlySequence = ReadOnlySequenceFactory.SingleSegmentFactory.CreateWithContent(encoding.GetBytes("+++=+++&++++=++++&+="));
+            var readOnlySequence = ReadOnlySequenceFactory.SegmentPerByteFactory.CreateWithContent(encoding.GetBytes("+++=+++&++++=++++&+="));
 
             KeyValueAccumulator accumulator = default;
 
             var formReader = new FormPipeReader(null, encoding);
             formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
 
             Assert.Equal(3, accumulator.KeyCount);
             var dict = accumulator.GetResults();
@@ -259,6 +342,7 @@ namespace Microsoft.AspNetCore.WebUtilities
 
             var formReader = new FormPipeReader(null, encoding);
             formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
 
             Assert.Equal(3, accumulator.KeyCount);
             var dict = accumulator.GetResults();
@@ -269,14 +353,15 @@ namespace Microsoft.AspNetCore.WebUtilities
 
         [Theory]
         [MemberData(nameof(Encodings))]
-        public void TryParseFormValues_MultiSegmentSplitAcrossSegmentsThatNeedDecodingWorks(Encoding encoding)
+        public void TryParseFormValues_SplitAcrossSegmentsThatNeedDecodingWorks(Encoding encoding)
         {
-            var readOnlySequence = ReadOnlySequenceFactory.SingleSegmentFactory.CreateWithContent(encoding.GetBytes("\"%-.<>\\^_`{|}~=\"%-.<>\\^_`{|}~&\"%-.<>\\^_`{|}=wow"));
+            var readOnlySequence = ReadOnlySequenceFactory.SegmentPerByteFactory.CreateWithContent(encoding.GetBytes("\"%-.<>\\^_`{|}~=\"%-.<>\\^_`{|}~&\"%-.<>\\^_`{|}=wow"));
 
             KeyValueAccumulator accumulator = default;
 
             var formReader = new FormPipeReader(null, encoding);
             formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
 
             Assert.Equal(2, accumulator.KeyCount);
             var dict = accumulator.GetResults();
@@ -285,7 +370,24 @@ namespace Microsoft.AspNetCore.WebUtilities
         }
 
         [Fact]
-        public void TryParseFormValues_MultiSegmentExceedKeyLengthThrows()
+        public void TryParseFormValues_MultiSegmentFastPathWorks()
+        {
+            var readOnlySequence = ReadOnlySequenceFactory.CreateSegments(Encoding.UTF8.GetBytes("foo=bar&"), Encoding.UTF8.GetBytes("baz=boo"));
+
+            KeyValueAccumulator accumulator = default;
+
+            var formReader = new FormPipeReader(null);
+            formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
+
+            Assert.Equal(2, accumulator.KeyCount);
+            var dict = accumulator.GetResults();
+            Assert.Equal("bar", dict["foo"]);
+            Assert.Equal("boo", dict["baz"]);
+        }
+
+        [Fact]
+        public void TryParseFormValues_ExceedKeyLengthThrows()
         {
             var readOnlySequence = ReadOnlySequenceFactory.SingleSegmentFactory.CreateWithContent(Encoding.UTF8.GetBytes("foo=bar&baz=boo&t="));
 
@@ -299,7 +401,7 @@ namespace Microsoft.AspNetCore.WebUtilities
         }
 
         [Fact]
-        public void TryParseFormValues_MultiSegmentExceedKeyLengthThrowsInSplitSegment()
+        public void TryParseFormValues_ExceedKeyLengthThrowsInSplitSegment()
         {
             var readOnlySequence = ReadOnlySequenceFactory.CreateSegments(Encoding.UTF8.GetBytes("fo=bar&ba"), Encoding.UTF8.GetBytes("z=boo&t="));
 
@@ -313,9 +415,9 @@ namespace Microsoft.AspNetCore.WebUtilities
         }
 
         [Fact]
-        public void TryParseFormValues_MultiSegmentExceedValueLengthThrows()
+        public void TryParseFormValues_ExceedValueLengthThrows()
         {
-            var readOnlySequence = ReadOnlySequenceFactory.CreateSegments(Encoding.UTF8.GetBytes("foo=bar&baz=bo"), Encoding.UTF8.GetBytes("o&t="));
+            var readOnlySequence = ReadOnlySequenceFactory.CreateSegments(Encoding.UTF8.GetBytes("foo=bar&baz=boo&t="));
 
             KeyValueAccumulator accumulator = default;
 
@@ -327,7 +429,7 @@ namespace Microsoft.AspNetCore.WebUtilities
         }
 
         [Fact]
-        public void TryParseFormValues_MultiSegmentExceedValueLengthThrowsInSplitSegment()
+        public void TryParseFormValues_ExceedValueLengthThrowsInSplitSegment()
         {
             var readOnlySequence = ReadOnlySequenceFactory.CreateSegments(Encoding.UTF8.GetBytes("foo=ba&baz=bo"), Encoding.UTF8.GetBytes("o&t="));
 
@@ -341,7 +443,7 @@ namespace Microsoft.AspNetCore.WebUtilities
         }
 
         [Fact]
-        public void TryParseFormValues_MultiSegmentExceedKeLengthThrowsInSplitSegmentEnd()
+        public void TryParseFormValues_ExceedKeyLengthThrowsInSplitSegmentEnd()
         {
             var readOnlySequence = ReadOnlySequenceFactory.CreateSegments(Encoding.UTF8.GetBytes("foo=ba&baz=bo"), Encoding.UTF8.GetBytes("o&asdfasdfasd="));
 
@@ -355,7 +457,7 @@ namespace Microsoft.AspNetCore.WebUtilities
         }
 
         [Fact]
-        public void TryParseFormValues_MultiSegmentExceedValueLengthThrowsInSplitSegmentEnd()
+        public void TryParseFormValues_ExceedValueLengthThrowsInSplitSegmentEnd()
         {
             var readOnlySequence = ReadOnlySequenceFactory.CreateSegments(Encoding.UTF8.GetBytes("foo=ba&baz=bo"), Encoding.UTF8.GetBytes("o&t=asdfasdfasd"));
 
@@ -385,6 +487,71 @@ namespace Microsoft.AspNetCore.WebUtilities
                 pipe.Reset();
             }
         }
+
+        [Theory]
+        [MemberData(nameof(IncompleteFormKeys))]
+        public void ParseFormWithIncompleteKeyWhenIsFinalBlockSucceeds(ReadOnlySequence<byte> readOnlySequence)
+        {
+            KeyValueAccumulator accumulator = default;
+
+            var formReader = new FormPipeReader(null)
+            {
+                KeyLengthLimit = 3
+            };
+
+            formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
+
+            IDictionary<string, StringValues> values = accumulator.GetResults();
+            Assert.Contains("fo", values);
+            Assert.Equal("bar", values["fo"]);
+            Assert.Contains("ba", values);
+            Assert.Equal("", values["ba"]);
+        }
+
+        [Theory]
+        [MemberData(nameof(IncompleteFormValues))]
+        public void ParseFormWithIncompleteValueWhenIsFinalBlockSucceeds(ReadOnlySequence<byte> readOnlySequence)
+        {
+            KeyValueAccumulator accumulator = default;
+
+            var formReader = new FormPipeReader(null)
+            {
+                ValueLengthLimit = 3
+            };
+
+            formReader.ParseFormValues(ref readOnlySequence, ref accumulator, isFinalBlock: true);
+            Assert.True(readOnlySequence.IsEmpty);
+
+            IDictionary<string, StringValues> values = accumulator.GetResults();
+            Assert.Contains("fo", values);
+            Assert.Equal("bar", values["fo"]);
+            Assert.Contains("b", values);
+            Assert.Equal("", values["b"]);
+        }
+
+        public static TheoryData<ReadOnlySequence<byte>> IncompleteFormKeys =>
+            new TheoryData<ReadOnlySequence<byte>>
+            {
+                { ReadOnlySequenceFactory.CreateSegments(Encoding.UTF8.GetBytes("fo=bar&b"), Encoding.UTF8.GetBytes("a"))  },
+                { new ReadOnlySequence<byte>(Encoding.UTF8.GetBytes("fo=bar&ba")) }
+            };
+
+        public static TheoryData<ReadOnlySequence<byte>> IncompleteFormValues =>
+            new TheoryData<ReadOnlySequence<byte>>
+            {
+                { ReadOnlySequenceFactory.CreateSegments(Encoding.UTF8.GetBytes("fo=bar&b"), Encoding.UTF8.GetBytes("="))  },
+                { new ReadOnlySequence<byte>(Encoding.UTF8.GetBytes("fo=bar&b=")) }
+            };
+
+        public static TheoryData<Encoding> Encodings =>
+                 new TheoryData<Encoding>
+                 {
+                     { Encoding.UTF8 },
+                     { Encoding.UTF32 },
+                     { Encoding.ASCII },
+                     { Encoding.Unicode }
+                 };
 
         internal virtual Task<Dictionary<string, StringValues>> ReadFormAsync(FormPipeReader reader)
         {

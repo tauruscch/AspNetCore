@@ -871,19 +871,31 @@
     }
   },
   "razorclasslib": {
-    "None": {
+    "ComponentsOnly": {
       "Template": "razorclasslib",
       "Arguments": "new razorclasslib",
+      "Files": [
+        "wwwroot/background.png",
+        "wwwroot/exampleJsInterop.js",
+        "wwwroot/styles.css",
+        "_Imports.razor",
+        "Component1.razor",
+        "ExampleJsInterop.cs"
+      ]
+    },
+    "ViewsOnly": {
+      "Template": "razorclasslib",
+      "Arguments": "new razorclasslib --support-pages-and-views true",
       "Files": [
         "Areas/MyFeature/Pages/Page1.cshtml",
         "Areas/MyFeature/Pages/Page1.cshtml.cs"
       ]
     }
   },
-  "razorcomponents": {
+  "blazorserver": {
     "Individual": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside -au Individual",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver -au Individual",
       "Files": [
         "app.db",
         "App.razor",
@@ -894,7 +906,7 @@
         "_Imports.razor",
         "Areas/Identity/Pages/Account/LogOut.cshtml",
         "Areas/Identity/Pages/Shared/_LoginPartial.cshtml",
-        "Areas/Identity/RevalidatingAuthenticationStateProvider.cs",
+        "Areas/Identity/RevalidatingIdentityAuthenticationStateProvider.cs",
         "Data/ApplicationDbContext.cs",
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
@@ -902,14 +914,15 @@
         "Data/Migrations/00000000000000_CreateIdentitySchema.Designer.cs",
         "Data/Migrations/ApplicationDbContextModelSnapshot.cs",
         "Pages/Counter.razor",
+        "Pages/Error.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
         "Pages/_Host.cshtml",
-        "Pages/_Imports.razor",
         "Properties/launchSettings.json",
         "Shared/LoginDisplay.razor",
         "Shared/MainLayout.razor",
         "Shared/NavMenu.razor",
+        "Shared/SurveyPrompt.razor",
         "wwwroot/favicon.ico",
         "wwwroot/css/site.css",
         "wwwroot/css/bootstrap/bootstrap.min.css",
@@ -926,8 +939,8 @@
       ]
     },
     "IndividualB2C": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside -au IndividualB2C",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver -au IndividualB2C",
       "Files": [
         "App.razor",
         "appsettings.Development.json",
@@ -938,14 +951,15 @@
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
         "Pages/Counter.razor",
+        "Pages/Error.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
         "Pages/_Host.cshtml",
-        "Pages/_Imports.razor",
         "Properties/launchSettings.json",
         "Shared/LoginDisplay.razor",
         "Shared/MainLayout.razor",
         "Shared/NavMenu.razor",
+        "Shared/SurveyPrompt.razor",
         "wwwroot/favicon.ico",
         "wwwroot/css/site.css",
         "wwwroot/css/bootstrap/bootstrap.min.css",
@@ -962,8 +976,8 @@
       ]
     },
     "MultiOrg": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside -au MultiOrg",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver -au MultiOrg",
       "Files": [
         "App.razor",
         "appsettings.Development.json",
@@ -974,14 +988,15 @@
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
         "Pages/Counter.razor",
+        "Pages/Error.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
         "Pages/_Host.cshtml",
-        "Pages/_Imports.razor",
         "Properties/launchSettings.json",
         "Shared/LoginDisplay.razor",
         "Shared/MainLayout.razor",
         "Shared/NavMenu.razor",
+        "Shared/SurveyPrompt.razor",
         "wwwroot/favicon.ico",
         "wwwroot/css/site.css",
         "wwwroot/css/bootstrap/bootstrap.min.css",
@@ -998,8 +1013,8 @@
       ]
     },
     "None": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver",
       "Files": [
         "App.razor",
         "appsettings.Development.json",
@@ -1009,14 +1024,15 @@
         "_Imports.razor",
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
+        "Pages/Error.razor",
         "Pages/Counter.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
         "Pages/_Host.cshtml",
-        "Pages/_Imports.razor",
         "Properties/launchSettings.json",
         "Shared/MainLayout.razor",
         "Shared/NavMenu.razor",
+        "Shared/SurveyPrompt.razor",
         "wwwroot/favicon.ico",
         "wwwroot/css/site.css",
         "wwwroot/css/bootstrap/bootstrap.min.css",
@@ -1033,8 +1049,8 @@
       ]
     },
     "SingleOrg": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside -au SingleOrg",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver -au SingleOrg",
       "Files": [
         "App.razor",
         "appsettings.Development.json",
@@ -1045,14 +1061,15 @@
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
         "Pages/Counter.razor",
+        "Pages/Error.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
         "Pages/_Host.cshtml",
-        "Pages/_Imports.razor",
         "Properties/launchSettings.json",
         "Shared/LoginDisplay.razor",
         "Shared/MainLayout.razor",
         "Shared/NavMenu.razor",
+        "Shared/SurveyPrompt.razor",
         "wwwroot/favicon.ico",
         "wwwroot/css/site.css",
         "wwwroot/css/bootstrap/bootstrap.min.css",
@@ -1069,8 +1086,8 @@
       ]
     },
     "Windows": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside -au Windows",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver -au Windows",
       "Files": [
         "App.razor",
         "appsettings.Development.json",
@@ -1081,14 +1098,15 @@
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
         "Pages/Counter.razor",
+        "Pages/Error.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
         "Pages/_Host.cshtml",
-        "Pages/_Imports.razor",
         "Properties/launchSettings.json",
         "Shared/LoginDisplay.razor",
         "Shared/MainLayout.razor",
         "Shared/NavMenu.razor",
+        "Shared/SurveyPrompt.razor",
         "wwwroot/favicon.ico",
         "wwwroot/css/site.css",
         "wwwroot/css/bootstrap/bootstrap.min.css",
@@ -1197,6 +1215,7 @@
         "ClientApp/src/App.test.js",
         "ClientApp/src/index.js",
         "ClientApp/src/registerServiceWorker.js",
+        "ClientApp/.env",
         "ClientApp/.gitignore",
         "ClientApp/package-lock.json",
         "ClientApp/package.json",
@@ -1239,6 +1258,7 @@
         "ClientApp/src/index.tsx",
         "ClientApp/src/react-app-env.d.ts",
         "ClientApp/src/registerServiceWorker.ts",
+        "ClientApp/.env",
         "ClientApp/.eslintrc.json",
         "ClientApp/.gitignore",
         "ClientApp/package-lock.json",

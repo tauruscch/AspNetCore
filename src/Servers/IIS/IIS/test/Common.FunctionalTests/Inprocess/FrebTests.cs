@@ -11,7 +11,6 @@ using Microsoft.AspNetCore.Server.IIS.FunctionalTests.Utilities;
 using Microsoft.AspNetCore.Server.IntegrationTesting;
 using Microsoft.AspNetCore.Server.IntegrationTesting.IIS;
 using Microsoft.AspNetCore.Testing;
-using Microsoft.AspNetCore.Testing.xunit;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
 using Xunit;
@@ -81,7 +80,7 @@ namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests.InProcess
         // I think this test is flaky due to freb file not being created quickly enough.
         // Adding extra logging, marking as flaky, and repeating should help
         [ConditionalFact]
-        [Flaky("https://github.com/aspnet/AspNetCore-Internal/issues/2570", FlakyOn.Helix.All)]
+        [Flaky("https://github.com/dotnet/aspnetcore-internal/issues/2570", FlakyOn.Helix.All)]
         [Repeat(10)]
         [RequiresIIS(IISCapability.FailedRequestTracingModule)]
         public async Task CheckFrebDisconnect()

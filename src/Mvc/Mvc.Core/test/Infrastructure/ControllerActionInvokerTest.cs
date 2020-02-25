@@ -1457,7 +1457,7 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
         #region Logs
 
         [Fact]
-        public async Task InvokeAsync_LogsControllerFactory()
+        public async Task InvokeAsync_Logs()
         {
             // Arrange
             var testSink = new TestSink();
@@ -1484,9 +1484,26 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
 
             // Assert
             var messages = testSink.Writes.Select(write => write.State.ToString()).ToList();
+            var actionSignature = $"{typeof(IActionResult).FullName} {nameof(TestController.ActionMethod)}()";
             var controllerName = $"{typeof(ControllerActionInvokerTest).FullName}+{nameof(TestController)} ({typeof(ControllerActionInvokerTest).Assembly.GetName().Name})";
-            Assert.Contains($"Executing controller factory for controller {controllerName}", messages);
-            Assert.Contains($"Executed controller factory for controller {controllerName}", messages);
+            var actionName = $"{typeof(ControllerActionInvokerTest).FullName}+{nameof(TestController)}.{nameof(TestController.ActionMethod)} ({typeof(ControllerActionInvokerTest).Assembly.GetName().Name})";
+            var actionResultName = $"{typeof(CommonResourceInvokerTest).FullName}+{nameof(TestResult)}";
+
+            Assert.Collection(
+                messages,
+                m => Assert.Equal($"Route matched with {{}}. Executing controller action with signature {actionSignature} on controller {controllerName}.", m),
+                m => Assert.Equal("Execution plan of authorization filters (in the following order): None", m),
+                m => Assert.Equal("Execution plan of resource filters (in the following order): None", m),
+                m => Assert.Equal("Execution plan of action filters (in the following order): None", m),
+                m => Assert.Equal("Execution plan of exception filters (in the following order): None", m),
+                m => Assert.Equal("Execution plan of result filters (in the following order): None", m),
+                m => Assert.Equal($"Executing controller factory for controller {controllerName}", m),
+                m => Assert.Equal($"Executed controller factory for controller {controllerName}", m),
+                m => Assert.Equal($"Executing action method {actionName} - Validation state: Valid", m),
+                m => Assert.StartsWith($"Executed action method {actionName}, returned result {actionResultName} in ", m),
+                m => Assert.Equal($"Before executing action result {actionResultName}.", m),
+                m => Assert.Equal($"After executing action result {actionResultName}.", m),
+                m => Assert.StartsWith($"Executed action {actionName} in ", m));
         }
 
         #endregion

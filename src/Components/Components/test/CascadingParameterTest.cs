@@ -4,6 +4,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.RenderTree;
 using Microsoft.AspNetCore.Components.Test.Helpers;
 using Xunit;
@@ -21,7 +22,7 @@ namespace Microsoft.AspNetCore.Components.Test
             {
                 builder.OpenComponent<CascadingValue<string>>(0);
                 builder.AddAttribute(1, "Value", "Hello");
-                builder.AddAttribute(2, RenderTreeBuilder.ChildContent, new RenderFragment(childBuilder =>
+                builder.AddAttribute(2, "ChildContent", new RenderFragment(childBuilder =>
                 {
                     childBuilder.OpenComponent<CascadingParameterConsumerComponent<string>>(0);
                     childBuilder.AddAttribute(1, "RegularParameter", "Goodbye");
@@ -59,7 +60,7 @@ namespace Microsoft.AspNetCore.Components.Test
             {
                 builder.OpenComponent<CascadingValue<string>>(0);
                 builder.AddAttribute(1, "Value", "Hello");
-                builder.AddAttribute(2, RenderTreeBuilder.ChildContent, new RenderFragment(childBuilder =>
+                builder.AddAttribute(2, "ChildContent", new RenderFragment(childBuilder =>
                 {
                     childBuilder.OpenComponent<CascadingParameterConsumerComponent<string>>(0);
                     childBuilder.AddAttribute(1, "RegularParameter", regularParameterValue);
@@ -107,7 +108,7 @@ namespace Microsoft.AspNetCore.Components.Test
             {
                 builder.OpenComponent<CascadingValue<string>>(0);
                 builder.AddAttribute(1, "Value", providedValue);
-                builder.AddAttribute(2, RenderTreeBuilder.ChildContent, new RenderFragment(childBuilder =>
+                builder.AddAttribute(2, "ChildContent", new RenderFragment(childBuilder =>
                 {
                     childBuilder.OpenComponent<CascadingParameterConsumerComponent<string>>(0);
                     childBuilder.AddAttribute(1, "RegularParameter", "Goodbye");
@@ -152,7 +153,7 @@ namespace Microsoft.AspNetCore.Components.Test
             {
                 builder.OpenComponent<CascadingValue<string>>(0);
                 builder.AddAttribute(1, "Value", "Unchanging value");
-                builder.AddAttribute(2, RenderTreeBuilder.ChildContent, new RenderFragment(childBuilder =>
+                builder.AddAttribute(2, "ChildContent", new RenderFragment(childBuilder =>
                 {
                     childBuilder.OpenComponent<CascadingParameterConsumerComponent<string>>(0);
                     childBuilder.AddAttribute(1, "RegularParameter", "Goodbye");
@@ -192,12 +193,12 @@ namespace Microsoft.AspNetCore.Components.Test
                 builder.OpenComponent<CascadingValue<int>>(0);
                 builder.AddAttribute(1, "Value", 123);
                 builder.AddAttribute(2, "IsFixed", true);
-                builder.AddAttribute(3, RenderTreeBuilder.ChildContent, new RenderFragment(builder2 =>
+                builder.AddAttribute(3, "ChildContent", new RenderFragment(builder2 =>
                 {
                     // Then also have a non-fixed cascading value so we can show that unsubscription works
                     builder2.OpenComponent<CascadingValue<string>>(0);
                     builder2.AddAttribute(1, "Value", providedValue);
-                    builder2.AddAttribute(2, RenderTreeBuilder.ChildContent, new RenderFragment(builder3 =>
+                    builder2.AddAttribute(2, "ChildContent", new RenderFragment(builder3 =>
                     {
                         if (displayNestedComponent)
                         {
@@ -221,7 +222,7 @@ namespace Microsoft.AspNetCore.Components.Test
 
             // Act/Assert 2: Re-render the CascadingValue; observe nested component wasn't re-rendered
             providedValue = "Updated value";
-            displayNestedComponent = false; // Remove the nested componet
+            displayNestedComponent = false; // Remove the nested component
             component.TriggerRender();
 
             // Assert: We did not render the nested component now it's been removed
@@ -258,7 +259,7 @@ namespace Microsoft.AspNetCore.Components.Test
                 builder.OpenComponent<CascadingValue<string>>(0);
                 builder.AddAttribute(1, "Value", providedValue);
                 builder.AddAttribute(2, "IsFixed", true);
-                builder.AddAttribute(3, RenderTreeBuilder.ChildContent, new RenderFragment(childBuilder =>
+                builder.AddAttribute(3, "ChildContent", new RenderFragment(childBuilder =>
                 {
                     if (shouldIncludeChild)
                     {
@@ -353,6 +354,40 @@ namespace Microsoft.AspNetCore.Components.Test
             Assert.Equal("The value of IsFixed cannot be changed dynamically.", ex.Message);
         }
 
+        [Fact]
+        public void ParameterViewSuppliedWithCascadingParametersCannotBeUsedAfterSynchronousReturn()
+        {
+            // Arrange
+            var providedValue = "Initial value";
+            var renderer = new TestRenderer();
+            var component = new TestComponent(builder =>
+            {
+                builder.OpenComponent<CascadingValue<string>>(0);
+                builder.AddAttribute(1, "Value", providedValue);
+                builder.AddAttribute(2, "ChildContent", new RenderFragment(childBuilder =>
+                {
+                    childBuilder.OpenComponent<CascadingParameterConsumerComponent<string>>(0);
+                    childBuilder.CloseComponent();
+                }));
+                builder.CloseComponent();
+            });
+
+            // Initial render; capture nested component
+            var componentId = renderer.AssignRootComponentId(component);
+            component.TriggerRender();
+            var firstBatch = renderer.Batches.Single();
+            var nestedComponent = FindComponent<CascadingParameterConsumerComponent<string>>(firstBatch, out var nestedComponentId);
+
+            // Re-render CascadingValue with new value, so it gets a new ParameterView
+            providedValue = "Updated value";
+            component.TriggerRender();
+            Assert.Equal(2, renderer.Batches.Count);
+
+            // It's no longer able to access anything in the ParameterView it just received
+            var ex = Assert.Throws<InvalidOperationException>(nestedComponent.AttemptIllegalAccessToLastParameterView);
+            Assert.Equal($"The {nameof(ParameterView)} instance can no longer be read because it has expired. {nameof(ParameterView)} can only be read synchronously and must not be stored for later use.", ex.Message);
+        }
+
         private static T FindComponent<T>(CapturedBatch batch, out int componentId)
         {
             var componentFrame = batch.ReferenceFrames.Single(
@@ -377,14 +412,17 @@ namespace Microsoft.AspNetCore.Components.Test
 
         class CascadingParameterConsumerComponent<T> : AutoRenderComponent
         {
+            private ParameterView lastParameterView;
+
             public int NumSetParametersCalls { get; private set; }
             public int NumRenders { get; private set; }
 
             [CascadingParameter] T CascadingParameter { get; set; }
-            [Parameter] string RegularParameter { get; set; }
+            [Parameter] public string RegularParameter { get; set; }
 
-            public override async Task SetParametersAsync(ParameterCollection parameters)
+            public override async Task SetParametersAsync(ParameterView parameters)
             {
+                lastParameterView = parameters;
                 NumSetParametersCalls++;
                 await base.SetParametersAsync(parameters);
             }
@@ -393,6 +431,13 @@ namespace Microsoft.AspNetCore.Components.Test
             {
                 NumRenders++;
                 builder.AddContent(0, $"CascadingParameter={CascadingParameter}; RegularParameter={RegularParameter}");
+            }
+
+            public void AttemptIllegalAccessToLastParameterView()
+            {
+                // You're not allowed to hold onto a ParameterView and access it later,
+                // so this should throw
+                lastParameterView.TryGetValue<object>("anything", out _);
             }
         }
 

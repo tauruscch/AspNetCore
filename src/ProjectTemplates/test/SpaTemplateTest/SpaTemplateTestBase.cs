@@ -2,10 +2,11 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Runtime.InteropServices;
+using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.E2ETesting;
@@ -44,7 +45,7 @@ namespace Templates.Test.SpaTemplateTest
         {
             Project = await ProjectFactory.GetOrCreateProject(key, Output);
 
-            var createResult = await Project.RunDotNetNewAsync(template, auth: usesAuth ? "Individual" : null, language: null, useLocalDb);
+            using var createResult = await Project.RunDotNetNewAsync(template, auth: usesAuth ? "Individual" : null, language: null, useLocalDb);
             Assert.True(0 == createResult.ExitCode, ErrorMessages.GetFailedProcessMessage("create/restore", Project, createResult));
 
             // We shouldn't have to do the NPM restore in tests because it should happen
@@ -60,42 +61,47 @@ namespace Templates.Test.SpaTemplateTest
                 Assert.Contains(".db", projectFileContents);
             }
 
-            var npmRestoreResult = await Project.RestoreWithRetryAsync(Output, clientAppSubdirPath);
+            using var npmRestoreResult = await Project.RestoreWithRetryAsync(Output, clientAppSubdirPath);
             Assert.True(0 == npmRestoreResult.ExitCode, ErrorMessages.GetFailedProcessMessage("npm restore", Project, npmRestoreResult));
 
-            var lintResult = await ProcessEx.RunViaShellAsync(Output, clientAppSubdirPath, "npm run lint");
+            using var lintResult = ProcessEx.RunViaShell(Output, clientAppSubdirPath, "npm run lint");
             Assert.True(0 == lintResult.ExitCode, ErrorMessages.GetFailedProcessMessage("npm run lint", Project, lintResult));
 
-            if (template == "react" || template == "reactredux")
-            {
-                var testResult = await ProcessEx.RunViaShellAsync(Output, clientAppSubdirPath, "npm run test");
-                Assert.True(0 == testResult.ExitCode, ErrorMessages.GetFailedProcessMessage("npm run test", Project, testResult));
-            }
+            // The default behavior of angular tests is watch mode, which leaves the test process open after it finishes, which leads to delays/hangs.
+            var testcommand = "npm run test" + template == "angular" ? "-- --watch=false" : "";
 
-            var publishResult = await Project.RunDotNetPublishAsync();
+            using var testResult = ProcessEx.RunViaShell(Output, clientAppSubdirPath, testcommand);
+            Assert.True(0 == testResult.ExitCode, ErrorMessages.GetFailedProcessMessage("npm run test", Project, testResult));
+
+            using var publishResult = await Project.RunDotNetPublishAsync();
             Assert.True(0 == publishResult.ExitCode, ErrorMessages.GetFailedProcessMessage("publish", Project, publishResult));
 
             // Run dotnet build after publish. The reason is that one uses Config = Debug and the other uses Config = Release
-            // The output from publish will go into bin/Release/netcoreapp3.0/publish and won't be affected by calling build
+            // The output from publish will go into bin/Release/netcoreappX.Y/publish and won't be affected by calling build
             // later, while the opposite is not true.
 
-            var buildResult = await Project.RunDotNetBuildAsync();
+            using var buildResult = await Project.RunDotNetBuildAsync();
             Assert.True(0 == buildResult.ExitCode, ErrorMessages.GetFailedProcessMessage("build", Project, buildResult));
 
             // localdb is not installed on the CI machines, so skip it.
-            var shouldVisitFetchData = !useLocalDb;
+            var shouldVisitFetchData = !(useLocalDb && Project.IsCIEnvironment);
 
             if (usesAuth)
             {
-                var migrationsResult = await Project.RunDotNetEfCreateMigrationAsync(template);
+                using var migrationsResult = await Project.RunDotNetEfCreateMigrationAsync(template);
                 Assert.True(0 == migrationsResult.ExitCode, ErrorMessages.GetFailedProcessMessage("run EF migrations", Project, migrationsResult));
                 Project.AssertEmptyMigration(template);
 
                 if (shouldVisitFetchData)
                 {
-                    var dbUpdateResult = await Project.RunDotNetEfUpdateDatabaseAsync();
+                    using var dbUpdateResult = await Project.RunDotNetEfUpdateDatabaseAsync();
                     Assert.True(0 == dbUpdateResult.ExitCode, ErrorMessages.GetFailedProcessMessage("update database", Project, dbUpdateResult));
                 }
+            }
+
+            if (template == "react" || template == "reactredux")
+            {
+                await CleanupReactClientAppBuildFolder(clientAppSubdirPath);
             }
 
             using (var aspNetProcess = Project.StartBuiltProjectAsync())
@@ -146,6 +152,35 @@ namespace Templates.Test.SpaTemplateTest
             }
         }
 
+        private async Task CleanupReactClientAppBuildFolder(string clientAppSubdirPath)
+        {
+            ProcessEx testResult = null;
+            int? testResultExitCode = null;
+            for (int i = 0; i < 3; i++)
+            {
+                try
+                {
+                    testResult = ProcessEx.RunViaShell(Output, clientAppSubdirPath, "npx rimraf ./build");
+                    testResultExitCode = testResult.ExitCode;
+                    if (testResultExitCode == 0)
+                    {
+                        return;
+                    }
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    testResult.Dispose();
+                }
+
+                await Task.Delay(3000);
+            }
+
+            Assert.True(testResultExitCode == 0, ErrorMessages.GetFailedProcessMessage("npx rimraf ./build", Project, testResult));
+        }
+
         private void ValidatePackageJson(string clientAppSubdirPath)
         {
             Assert.True(File.Exists(Path.Combine(clientAppSubdirPath, "package.json")), "Missing a package.json");
@@ -159,8 +194,11 @@ namespace Templates.Test.SpaTemplateTest
 
         private static async Task WarmUpServer(AspNetProcess aspNetProcess)
         {
+            var intervalInSeconds = 5;
             var attempt = 0;
-            var maxAttempts = 3;
+            var maxAttempts = 5;
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
             do
             {
                 try
@@ -169,14 +207,20 @@ namespace Templates.Test.SpaTemplateTest
                     var response = await aspNetProcess.SendRequest("/");
                     if (response.StatusCode == HttpStatusCode.OK)
                     {
-                        break;
+                        return;
                     }
                 }
                 catch (OperationCanceledException)
                 {
                 }
-                await Task.Delay(TimeSpan.FromSeconds(5 * attempt));
+                catch (HttpRequestException ex) when (ex.Message.StartsWith("The SSL connection could not be established"))
+                {
+                }
+                var currentDelay = intervalInSeconds * attempt;
+                await Task.Delay(TimeSpan.FromSeconds(currentDelay));
             } while (attempt < maxAttempts);
+            stopwatch.Stop();
+            throw new TimeoutException($"Could not contact the server within {stopwatch.Elapsed.TotalSeconds} seconds");
         }
 
         private void UpdatePublishedSettings()
@@ -203,31 +247,31 @@ namespace Templates.Test.SpaTemplateTest
         {
             browser.Exists(By.TagName("ul"));
             // <title> element gets project ID injected into it during template execution
-            browser.Contains(Project.ProjectGuid, () => browser.Title);
+            browser.Contains(Project.ProjectGuid.Replace(".", "._"), () => browser.Title);
 
             // Initially displays the home page
             browser.Equal("Hello, world!", () => browser.FindElement(By.TagName("h1")).Text);
 
             // Can navigate to the counter page
-            browser.FindElement(By.PartialLinkText("Counter")).Click();
+            browser.Click(By.PartialLinkText("Counter"));
             browser.Contains("counter", () => browser.Url);
 
             browser.Equal("Counter", () => browser.FindElement(By.TagName("h1")).Text);
 
             // Clicking the counter button works
             browser.Equal("0", () => browser.FindElement(By.CssSelector("p>strong")).Text);
-            browser.FindElement(By.CssSelector("p+button")).Click();
+            browser.Click(By.CssSelector("p+button")) ;
             browser.Equal("1", () => browser.FindElement(By.CssSelector("p>strong")).Text);
 
             if (visitFetchData)
             {
-                browser.FindElement(By.PartialLinkText("Fetch data")).Click();
+                browser.Click(By.PartialLinkText("Fetch data"));
 
                 if (usesAuth)
                 {
                     // We will be redirected to the identity UI
                     browser.Contains("/Identity/Account/Login", () => browser.Url);
-                    browser.FindElement(By.PartialLinkText("Register as a new user")).Click();
+                    browser.Click(By.PartialLinkText("Register as a new user"));
 
                     var userName = $"{Guid.NewGuid()}@example.com";
                     var password = $"!Test.Password1$";
@@ -235,7 +279,24 @@ namespace Templates.Test.SpaTemplateTest
                     browser.FindElement(By.Name("Input.Email")).SendKeys(userName);
                     browser.FindElement(By.Name("Input.Password")).SendKeys(password);
                     browser.FindElement(By.Name("Input.ConfirmPassword")).SendKeys(password);
-                    browser.FindElement(By.Id("registerSubmit")).Click();
+                    browser.Click(By.Id("registerSubmit"));
+
+                    // We will be redirected to the RegisterConfirmation
+                    browser.Contains("/Identity/Account/RegisterConfirmation", () => browser.Url);
+                    browser.Click(By.PartialLinkText("Click here to confirm your account"));
+
+                    // We will be redirected to the ConfirmEmail
+                    browser.Contains("/Identity/Account/ConfirmEmail", () => browser.Url);
+
+                    // Now we can login
+                    browser.Click(By.PartialLinkText("Login"));
+                    browser.Exists(By.Name("Input.Email"));
+                    browser.FindElement(By.Name("Input.Email")).SendKeys(userName);
+                    browser.FindElement(By.Name("Input.Password")).SendKeys(password);
+                    browser.Click(By.Id("login-submit"));
+
+                    // Need to navigate to fetch page
+                    browser.Click(By.PartialLinkText("Fetch data"));
                 }
 
                 // Can navigate to the 'fetch data' page
@@ -252,9 +313,12 @@ namespace Templates.Test.SpaTemplateTest
                 var entries = logs.GetLog(logKind);
                 var badEntries = entries.Where(e => new LogLevel[] { LogLevel.Warning, LogLevel.Severe }.Contains(e.Level));
 
+                // Based on https://github.com/webpack/webpack-dev-server/issues/2134
                 badEntries = badEntries.Where(e =>
                     !e.Message.Contains("failed: WebSocket is closed before the connection is established.")
-                    && !e.Message.Contains("[WDS] Disconnected!"));
+                    && !e.Message.Contains("[WDS] Disconnected!")
+                    && !e.Message.Contains("Timed out connecting to Chrome, retrying")
+                    && !(e.Message.Contains("jsonp?c=") && e.Message.Contains("Uncaught TypeError:") && e.Message.Contains("is not a function")));
 
                 Assert.True(badEntries.Count() == 0, "There were Warnings or Errors from the browser." + Environment.NewLine + string.Join(Environment.NewLine, badEntries));
             }

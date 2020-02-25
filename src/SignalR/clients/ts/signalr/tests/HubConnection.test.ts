@@ -127,6 +127,25 @@ describe("HubConnection", () => {
                 }
             });
         });
+
+        it("does not send pings for connection with inherentKeepAlive", async () => {
+            await VerifyLogger.run(async (logger) => {
+                const connection = new TestConnection(true, true);
+                const hubConnection = createHubConnection(connection, logger);
+
+                hubConnection.keepAliveIntervalInMilliseconds = 5;
+
+                try {
+                    await hubConnection.start();
+                    await delayUntil(500);
+
+                    const numPings = connection.sentData.filter((s) => JSON.parse(s).type === MessageType.Ping).length;
+                    expect(numPings).toEqual(0);
+                } finally {
+                    await hubConnection.stop();
+                }
+            });
+        });
     });
 
     describe("stop", () => {
@@ -822,7 +841,9 @@ describe("HubConnection", () => {
 
                     await hubConnection.start();
 
+                    // allowReconnect Should have no effect since auto reconnect is disabled by default.
                     connection.receive({
+                        allowReconnect: true,
                         error: "Error!",
                         type: MessageType.Close,
                     });
@@ -1273,18 +1294,22 @@ describe("HubConnection", () => {
                 const connection = new TestConnection();
                 const hubConnection = createHubConnection(connection, logger);
                 try {
-                    hubConnection.serverTimeoutInMilliseconds = 400;
+                    const timeoutInMilliseconds = 400;
+                    hubConnection.serverTimeoutInMilliseconds = timeoutInMilliseconds;
 
                     const p = new PromiseSource<Error>();
                     hubConnection.onclose((e) => p.resolve(e));
 
                     await hubConnection.start();
 
-                    for (let i = 0; i < 12; i++) {
-                        await pingAndWait(connection);
-                    }
+                    const pingInterval = setInterval(async () => {
+                        await connection.receive({ type: MessageType.Ping });
+                    }, 10);
+
+                    await delayUntil(timeoutInMilliseconds * 2);
 
                     await connection.stop();
+                    clearInterval(pingInterval);
 
                     const error = await p.promise;
 
@@ -1317,11 +1342,6 @@ describe("HubConnection", () => {
         });
     });
 });
-
-async function pingAndWait(connection: TestConnection): Promise<void> {
-    await connection.receive({ type: MessageType.Ping });
-    await delayUntil(50);
-}
 
 class TestProtocol implements IHubProtocol {
     public readonly name: string = "TestProtocol";

@@ -146,23 +146,7 @@ namespace Microsoft.DotNet.Watcher.Tools.FunctionalTests
             Directory.CreateDirectory(WorkFolder);
 
             File.WriteAllText(Path.Combine(WorkFolder, "Directory.Build.props"), "<Project />");
-
-            var restoreSources = GetMetadata("TestSettings:RestoreSources");
-
-            var dbTargets = new XDocument(
-                new XElement("Project",
-                    new XElement("PropertyGroup",
-                        new XElement("RestoreSources", restoreSources))));
-            dbTargets.Save(Path.Combine(WorkFolder, "Directory.Build.targets"));
-        }
-
-        private string GetMetadata(string key)
-        {
-            return typeof(ProjectToolScenario)
-                .Assembly
-                .GetCustomAttributes<AssemblyMetadataAttribute>()
-                .First(a => string.Equals(a.Key, key, StringComparison.Ordinal))
-                .Value;
+            File.WriteAllText(Path.Combine(WorkFolder, "Directory.Build.targets"), "<Project />");
         }
 
         public void Dispose()

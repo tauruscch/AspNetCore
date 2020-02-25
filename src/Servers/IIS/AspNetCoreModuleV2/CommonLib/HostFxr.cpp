@@ -30,22 +30,24 @@ void HostFxrErrorRedirector::HostFxrErrorRedirectorCallback(const WCHAR* message
     m_writeFunction->Append(std::wstring(message) + L"\r\n");
 }
 
-void HostFxr::Load()
-{
-    HMODULE hModule;
-    THROW_LAST_ERROR_IF(!GetModuleHandleEx(0, L"hostfxr.dll", &hModule));
-    Load(hModule);
-}
-
 void HostFxr::Load(HMODULE moduleHandle)
 {
+    // A hostfxr may already be loaded here if we tried to start with an
+    // invalid configuration. Release hostfxr before loading it again.
+    if (m_hHostFxrDll != nullptr)
+    {
+        m_hHostFxrDll.release();
+    }
+
     m_hHostFxrDll = moduleHandle;
+
     try
     {
         m_hostfxr_get_native_search_directories_fn = ModuleHelpers::GetKnownProcAddress<hostfxr_get_native_search_directories_fn>(moduleHandle, "hostfxr_get_native_search_directories");
         m_corehost_set_error_writer_fn = ModuleHelpers::GetKnownProcAddress<corehost_set_error_writer_fn>(moduleHandle, "hostfxr_set_error_writer", /* optional */ true);
         m_hostfxr_initialize_for_dotnet_commandline_fn = ModuleHelpers::GetKnownProcAddress<hostfxr_initialize_for_dotnet_runtime_fn>(moduleHandle, "hostfxr_initialize_for_dotnet_command_line", /* optional */ true);
         m_hostfxr_set_runtime_property_value_fn = ModuleHelpers::GetKnownProcAddress<hostfxr_set_runtime_property_value_fn>(moduleHandle, "hostfxr_set_runtime_property_value", /* optional */ true);
+        m_hostfxr_get_runtime_property_value_fn = ModuleHelpers::GetKnownProcAddress<hostfxr_get_runtime_property_value_fn>(moduleHandle, "hostfxr_get_runtime_property_value", /* optional */ true);
         m_hostfxr_run_app_fn = ModuleHelpers::GetKnownProcAddress<hostfxr_run_app_fn>(moduleHandle, "hostfxr_run_app", /* optional */ true);
         m_hostfxr_close_fn = ModuleHelpers::GetKnownProcAddress<hostfxr_close_fn>(moduleHandle, "hostfxr_close", /* optional */ true);
     }
@@ -63,9 +65,13 @@ void HostFxr::Load(HMODULE moduleHandle)
 
 void HostFxr::Load(const std::wstring& location)
 {
+    // Make sure to always load hostfxr via an absolute path.
+    // If the process fails to start for whatever reason, a mismatched hostfxr
+    // may be already loaded in the process.
     try
     {
         HMODULE hModule;
+        LOG_INFOF(L"Loading hostfxr from location %s", location.c_str());
         THROW_LAST_ERROR_IF_NULL(hModule = LoadLibraryW(location.c_str()));
         Load(hModule);
     }
@@ -155,6 +161,15 @@ int HostFxr::SetRuntimePropertyValue(PCWSTR name, PCWSTR value) const noexcept
     if (m_host_context_handle != nullptr && m_hostfxr_set_runtime_property_value_fn != nullptr)
     {
         return m_hostfxr_set_runtime_property_value_fn(m_host_context_handle, name, value);
+    }
+    return 0;
+}
+
+int HostFxr::GetRuntimePropertyValue(PCWSTR name, PWSTR* value) const noexcept
+{
+    if (m_host_context_handle != nullptr && m_hostfxr_get_runtime_property_value_fn != nullptr)
+    {
+        return m_hostfxr_get_runtime_property_value_fn(m_host_context_handle, name, value);
     }
     return 0;
 }

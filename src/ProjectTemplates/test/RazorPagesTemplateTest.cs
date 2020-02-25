@@ -5,7 +5,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Testing;
-using Microsoft.AspNetCore.Testing.xunit;
 using Templates.Test.Helpers;
 using Xunit;
 using Xunit.Abstractions;
@@ -27,8 +26,7 @@ namespace Templates.Test
         public ITestOutputHelper Output { get; }
 
         [Fact]
-        [Flaky("https://github.com/aspnet/AspNetCore-Internal/issues/2327", FlakyOn.All)]
-        public async Task RazorPagesTemplate_NoAuthImplAsync()
+        public async Task RazorPagesTemplate_NoAuth()
         {
             Project = await ProjectFactory.GetOrCreateProject("razorpagesnoauth", Output);
 
@@ -46,7 +44,7 @@ namespace Templates.Test
             Assert.True(0 == publishResult.ExitCode, ErrorMessages.GetFailedProcessMessage("publish", Project, createResult));
 
             // Run dotnet build after publish. The reason is that one uses Config = Debug and the other uses Config = Release
-            // The output from publish will go into bin/Release/netcoreapp3.0/publish and won't be affected by calling build
+            // The output from publish will go into bin/Release/netcoreappX.Y/publish and won't be affected by calling build
             // later, while the opposite is not true.
 
             var buildResult = await Project.RunDotNetBuildAsync();
@@ -96,10 +94,9 @@ namespace Templates.Test
         }
 
         [Theory]
-        [Flaky("https://github.com/aspnet/AspNetCore-Internal/issues/2335", FlakyOn.All)]
         [InlineData(false)]
         [InlineData(true)]
-        public async Task RazorPagesTemplate_IndividualAuthImplAsync(bool useLocalDB)
+        public async Task RazorPagesTemplate_IndividualAuth(bool useLocalDB)
         {
             Project = await ProjectFactory.GetOrCreateProject("razorpagesindividual" + (useLocalDB ? "uld" : ""), Output);
 
@@ -116,7 +113,7 @@ namespace Templates.Test
             Assert.True(0 == publishResult.ExitCode, ErrorMessages.GetFailedProcessMessage("publish", Project, publishResult));
 
             // Run dotnet build after publish. The reason is that one uses Config = Debug and the other uses Config = Release
-            // The output from publish will go into bin/Release/netcoreapp3.0/publish and won't be affected by calling build
+            // The output from publish will go into bin/Release/netcoreappX.Y/publish and won't be affected by calling build
             // later, while the opposite is not true.
 
             var buildResult = await Project.RunDotNetBuildAsync();
@@ -175,6 +172,7 @@ namespace Templates.Test
                         PageUrls.PrivacyUrl,
                         PageUrls.ForgotPassword,
                         PageUrls.RegisterUrl,
+                        PageUrls.ResendEmailConfirmation,
                         PageUrls.ExternalArticle,
                         PageUrls.PrivacyUrl }
                 },
@@ -211,6 +209,29 @@ namespace Templates.Test
                 await aspNetProcess.AssertPagesOk(pages);
             }
         }
+
+        [Fact]
+        public async Task RazorPagesTemplate_RazorRuntimeCompilation_BuildsAndPublishes()
+        {
+            Project = await ProjectFactory.GetOrCreateProject("razorpages_rc", Output);
+
+            var createResult = await Project.RunDotNetNewAsync("razor", args: new[] { "--razor-runtime-compilation" });
+            Assert.True(0 == createResult.ExitCode, ErrorMessages.GetFailedProcessMessage("create/restore", Project, createResult));
+
+            // Verify building in debug works
+            var buildResult = await Project.RunDotNetBuildAsync();
+            Assert.True(0 == buildResult.ExitCode, ErrorMessages.GetFailedProcessMessage("build", Project, buildResult));
+
+            // Publish builds in "release" configuration. Running publish should ensure we can compile in release and that we can publish without issues.
+            buildResult = await Project.RunDotNetPublishAsync();
+            Assert.True(0 == buildResult.ExitCode, ErrorMessages.GetFailedProcessMessage("publish", Project, buildResult));
+
+            Assert.False(Directory.Exists(Path.Combine(Project.TemplatePublishDir, "refs")), "The refs directory should not be published.");
+
+            // Verify ref assemblies isn't published
+            var refsDirectory = Path.Combine(Project.TemplatePublishDir, "refs");
+            Assert.False(Directory.Exists(refsDirectory), $"{refsDirectory} should not be in the publish output.");
+       }
 
 
         private string ReadFile(string basePath, string path)

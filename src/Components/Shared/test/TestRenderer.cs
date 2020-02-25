@@ -7,6 +7,7 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components.Rendering;
+using Microsoft.AspNetCore.Components.RenderTree;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -18,13 +19,17 @@ namespace Microsoft.AspNetCore.Components.Test.Helpers
         {
         }
 
-        public TestRenderer(IDispatcher dispatcher) : base(new TestServiceProvider(), NullLoggerFactory.Instance, dispatcher)
+        public TestRenderer(Dispatcher dispatcher) : base(new TestServiceProvider(), NullLoggerFactory.Instance)
         {
+            Dispatcher = dispatcher;
         }
 
-        public TestRenderer(IServiceProvider serviceProvider) : base(serviceProvider, NullLoggerFactory.Instance, new RendererSynchronizationContext())
+        public TestRenderer(IServiceProvider serviceProvider) : base(serviceProvider, NullLoggerFactory.Instance)
         {
+            Dispatcher = Dispatcher.CreateDefault();
         }
+
+        public override Dispatcher Dispatcher { get; }
 
         public Action OnExceptionHandled { get; set; }
 
@@ -44,23 +49,26 @@ namespace Microsoft.AspNetCore.Components.Test.Helpers
         public new int AssignRootComponentId(IComponent component)
             => base.AssignRootComponentId(component);
 
-        public void RenderRootComponent(int componentId, ParameterCollection? parameters = default)
+        public new ArrayRange<RenderTreeFrame> GetCurrentRenderTreeFrames(int componentId)
+            => base.GetCurrentRenderTreeFrames(componentId);
+
+        public void RenderRootComponent(int componentId, ParameterView? parameters = default)
         {
-            var task = InvokeAsync(() => base.RenderRootComponentAsync(componentId, parameters ?? ParameterCollection.Empty));
+            var task = Dispatcher.InvokeAsync(() => base.RenderRootComponentAsync(componentId, parameters ?? ParameterView.Empty));
             UnwrapTask(task);
         }
 
         public new Task RenderRootComponentAsync(int componentId)
-            => InvokeAsync(() => base.RenderRootComponentAsync(componentId));
+            => Dispatcher.InvokeAsync(() => base.RenderRootComponentAsync(componentId));
 
-        public new Task RenderRootComponentAsync(int componentId, ParameterCollection parameters)
-            => InvokeAsync(() => base.RenderRootComponentAsync(componentId, parameters));
+        public new Task RenderRootComponentAsync(int componentId, ParameterView parameters)
+            => Dispatcher.InvokeAsync(() => base.RenderRootComponentAsync(componentId, parameters));
 
-        public Task DispatchEventAsync(int eventHandlerId, UIEventArgs args)
-            => InvokeAsync(() => base.DispatchEventAsync(eventHandlerId, null, args));
+        public Task DispatchEventAsync(ulong eventHandlerId, EventArgs args)
+            => Dispatcher.InvokeAsync(() => base.DispatchEventAsync(eventHandlerId, null, args));
 
-        public new Task DispatchEventAsync(int eventHandlerId, EventFieldInfo eventFieldInfo, UIEventArgs args)
-            => InvokeAsync(() => base.DispatchEventAsync(eventHandlerId, eventFieldInfo, args));
+        public new Task DispatchEventAsync(ulong eventHandlerId, EventFieldInfo eventFieldInfo, EventArgs args)
+            => Dispatcher.InvokeAsync(() => base.DispatchEventAsync(eventHandlerId, eventFieldInfo, args));
 
         private static Task UnwrapTask(Task task)
         {
@@ -117,5 +125,8 @@ namespace Microsoft.AspNetCore.Components.Test.Helpers
             OnUpdateDisplayComplete?.Invoke();
             return NextRenderResultTask;
         }
+
+        public new void ProcessPendingRender()
+            => base.ProcessPendingRender();
     }
 }

@@ -3,11 +3,8 @@
 
 using System;
 using System.Net.Http;
-using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Net.Http.Headers;
 using Xunit;
@@ -476,58 +473,6 @@ namespace Microsoft.AspNetCore.ResponseCaching.Tests
         }
 
         [Fact]
-        public async Task ServesCachedContent_IfIHttpSendFileFeature_NotUsed()
-        {
-            var builders = TestUtils.CreateBuildersWithResponseCaching(app =>
-            {
-                app.Use(async (context, next) =>
-                {
-                    context.Features.Set<IHttpSendFileFeature>(new DummySendFileFeature());
-                    await next.Invoke();
-                });
-            });
-
-            foreach (var builder in builders)
-            {
-                using (var server = new TestServer(builder))
-                {
-                    var client = server.CreateClient();
-                    var initialResponse = await client.GetAsync("");
-                    var subsequentResponse = await client.GetAsync("");
-
-                    await AssertCachedResponseAsync(initialResponse, subsequentResponse);
-                }
-            }
-        }
-
-        [Fact]
-        public async Task ServesFreshContent_IfIHttpSendFileFeature_Used()
-        {
-            var builders = TestUtils.CreateBuildersWithResponseCaching(
-                app =>
-                {
-                    app.Use(async (context, next) =>
-                    {
-                        context.Features.Set<IHttpSendFileFeature>(new DummySendFileFeature());
-                        await next.Invoke();
-                    });
-                },
-                contextAction: async context => await context.Features.Get<IHttpSendFileFeature>().SendFileAsync("dummy", 0, 0, CancellationToken.None));
-
-            foreach (var builder in builders)
-            {
-                using (var server = new TestServer(builder))
-                {
-                    var client = server.CreateClient();
-                    var initialResponse = await client.GetAsync("");
-                    var subsequentResponse = await client.GetAsync("");
-
-                    await AssertFreshResponseAsync(initialResponse, subsequentResponse);
-                }
-            }
-        }
-
-        [Fact]
         public async Task ServesCachedContent_IfSubsequentRequestContainsNoStore()
         {
             var builders = TestUtils.CreateBuildersWithResponseCaching();
@@ -820,6 +765,24 @@ namespace Microsoft.AspNetCore.ResponseCaching.Tests
                     client.DefaultRequestHeaders.Pragma.Add(new System.Net.Http.Headers.NameValueHeaderValue("From"));
                     client.DefaultRequestHeaders.MaxForwards = 1;
                     var subsequentResponse = await client.GetAsync("");
+
+                    await AssertCachedResponseAsync(initialResponse, subsequentResponse);
+                }
+            }
+        }
+
+        [Fact]
+        public async Task ServesCachedContent_IfAvailable_UsingHead_WithContentLength()
+        {
+            var builders = TestUtils.CreateBuildersWithResponseCaching();
+
+            foreach (var builder in builders)
+            {
+                using (var server = new TestServer(builder))
+                {
+                    var client = server.CreateClient();
+                    var initialResponse = await client.SendAsync(TestUtils.CreateRequest("HEAD", "?contentLength=10"));
+                    var subsequentResponse = await client.SendAsync(TestUtils.CreateRequest("HEAD", "?contentLength=10"));
 
                     await AssertCachedResponseAsync(initialResponse, subsequentResponse);
                 }

@@ -45,6 +45,7 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
         private readonly HttpConnectionManager _manager;
         private readonly ILoggerFactory _loggerFactory;
         private readonly ILogger _logger;
+        private static readonly int _protocolVersion = 1;
 
         public HttpConnectionDispatcher(HttpConnectionManager manager, ILoggerFactory loggerFactory)
         {
@@ -58,7 +59,15 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
             // Create the log scope and attempt to pass the Connection ID to it so as many logs as possible contain
             // the Connection ID metadata. If this is the negotiate request then the Connection ID for the scope will
             // be set a little later.
-            var logScope = new ConnectionLogScope(GetConnectionId(context));
+
+            HttpConnectionContext connectionContext = null;
+            var connectionToken = GetConnectionToken(context);
+            if (connectionToken != null)
+            {
+                _manager.TryGetConnection(connectionToken, out connectionContext);
+            }
+
+            var logScope = new ConnectionLogScope(connectionContext?.ConnectionId);
             using (_logger.BeginScope(logScope))
             {
                 if (HttpMethods.IsPost(context.Request.Method))
@@ -133,7 +142,7 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
                 connection.SupportedFormats = TransferFormat.Text;
 
                 // We only need to provide the Input channel since writing to the application is handled through /send.
-                var sse = new ServerSentEventsTransport(connection.Application.Input, connection.ConnectionId, _loggerFactory);
+                var sse = new ServerSentEventsServerTransport(connection.Application.Input, connection.ConnectionId, connection, _loggerFactory);
 
                 await DoPersistentConnection(connectionDelegate, sse, context, connection);
             }
@@ -155,10 +164,10 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
 
                 Log.EstablishedConnection(_logger);
 
-                // Allow the reads to be cancelled
+                // Allow the reads to be canceled
                 connection.Cancellation = new CancellationTokenSource();
 
-                var ws = new WebSocketsTransport(options.WebSockets, connection.Application, connection, _loggerFactory);
+                var ws = new WebSocketsServerTransport(options.WebSockets, connection.Application, connection, _loggerFactory);
 
                 await DoPersistentConnection(connectionDelegate, ws, context, connection);
             }
@@ -180,27 +189,14 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
                     return;
                 }
 
+                if (!await connection.CancelPreviousPoll(context))
+                {
+                    // Connection closed. It's already set the response status code.
+                    return;
+                }
+
                 // Create a new Tcs every poll to keep track of the poll finishing, so we can properly wait on previous polls
                 var currentRequestTcs = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                using (connection.Cancellation)
-                {
-                    // Cancel the previous request
-                    connection.Cancellation?.Cancel();
-
-                    try
-                    {
-                        // Wait for the previous request to drain
-                        await connection.PreviousPollTask;
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Previous poll canceled due to connection closing, close this poll too
-                        context.Response.ContentType = "text/plain";
-                        context.Response.StatusCode = StatusCodes.Status204NoContent;
-                        return;
-                    }
-                }
 
                 if (!connection.TryActivateLongPollingConnection(
                         connectionDelegate, context, options.LongPolling.PollTimeout,
@@ -220,7 +216,9 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
                         connection.Transport.Output.Complete(connection.ApplicationTask.Exception);
 
                         // Wait for the transport to run
-                        await connection.TransportTask;
+                        // Ignore exceptions, it has been logged if there is one and the application has finished
+                        // So there is no one to give the exception to
+                        await connection.TransportTask.NoThrow();
 
                         // If the status code is a 204 it means the connection is done
                         if (context.Response.StatusCode == StatusCodes.Status204NoContent)
@@ -238,12 +236,12 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
                             connection.MarkInactive();
                         }
                     }
-                    else if (resultTask.IsFaulted)
+                    else if (resultTask.IsFaulted || resultTask.IsCanceled)
                     {
                         // Cancel current request to release any waiting poll and let dispose acquire the lock
                         currentRequestTcs.TrySetCanceled();
-
-                        // transport task was faulted, we should remove the connection
+                        // We should be able to safely dispose because there's no more data being written
+                        // We don't need to wait for close here since we've already waited for both sides
                         await _manager.DisposeAndRemoveAsync(connection, closeGracefully: false);
                     }
                     else
@@ -278,13 +276,44 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
         private async Task ProcessNegotiate(HttpContext context, HttpConnectionDispatcherOptions options, ConnectionLogScope logScope)
         {
             context.Response.ContentType = "application/json";
+            string error = null;
+            int clientProtocolVersion = 0;
+            if (context.Request.Query.TryGetValue("NegotiateVersion", out var queryStringVersion))
+            {
+                // Set the negotiate response to the protocol we use.
+                var queryStringVersionValue = queryStringVersion.ToString();
+                if (!int.TryParse(queryStringVersionValue, out clientProtocolVersion))
+                {
+                    error = $"The client requested an invalid protocol version '{queryStringVersionValue}'";
+                    Log.InvalidNegotiateProtocolVersion(_logger, queryStringVersionValue);
+                }
+                else if (clientProtocolVersion < options.MinimumProtocolVersion)
+                {
+                    error = $"The client requested version '{clientProtocolVersion}', but the server does not support this version.";
+                    Log.NegotiateProtocolVersionMismatch(_logger, clientProtocolVersion);
+                }
+                else if (clientProtocolVersion > _protocolVersion)
+                {
+                    clientProtocolVersion = _protocolVersion;
+                }
+            }
+            else if (options.MinimumProtocolVersion > 0)
+            {
+                // NegotiateVersion wasn't parsed meaning the client requests version 0.
+                error = $"The client requested version '0', but the server does not support this version.";
+                Log.NegotiateProtocolVersionMismatch(_logger, 0);
+            }
 
             // Establish the connection
-            var connection = CreateConnection(options);
+            HttpConnectionContext connection = null;
+            if (error == null)
+            {
+                connection = CreateConnection(options, clientProtocolVersion);
+            }
 
             // Set the Connection ID on the logging scope so that logs from now on will have the
             // Connection ID metadata set.
-            logScope.ConnectionId = connection.ConnectionId;
+            logScope.ConnectionId = connection?.ConnectionId;
 
             // Don't use thread static instance here because writer is used with async
             var writer = new MemoryBufferWriter();
@@ -292,7 +321,7 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
             try
             {
                 // Get the bytes for the connection id
-                WriteNegotiatePayload(writer, connection.ConnectionId, context, options);
+                WriteNegotiatePayload(writer, connection?.ConnectionId, connection?.ConnectionToken, context, options, clientProtocolVersion, error);
 
                 Log.NegotiationRequest(_logger);
 
@@ -306,10 +335,21 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
             }
         }
 
-        private static void WriteNegotiatePayload(IBufferWriter<byte> writer, string connectionId, HttpContext context, HttpConnectionDispatcherOptions options)
+        private void WriteNegotiatePayload(IBufferWriter<byte> writer, string connectionId, string connectionToken, HttpContext context, HttpConnectionDispatcherOptions options,
+            int clientProtocolVersion, string error)
         {
             var response = new NegotiationResponse();
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                response.Error = error;
+                NegotiateProtocol.WriteResponse(response, writer);
+                return;
+            }
+
+            response.Version = clientProtocolVersion;
             response.ConnectionId = connectionId;
+            response.ConnectionToken = connectionToken;
             response.AvailableTransports = new List<AvailableTransport>();
 
             if ((options.Transports & HttpTransportType.WebSockets) != 0 && ServerHasWebSockets(context.Features))
@@ -335,7 +375,7 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
             return features.Get<IHttpWebSocketFeature>() != null;
         }
 
-        private static string GetConnectionId(HttpContext context) => context.Request.Query["id"];
+        private static string GetConnectionToken(HttpContext context) => context.Request.Query["id"];
 
         private async Task ProcessSend(HttpContext context, HttpConnectionDispatcherOptions options)
         {
@@ -396,6 +436,14 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
 
                         context.Response.StatusCode = StatusCodes.Status404NotFound;
                         context.Response.ContentType = "text/plain";
+
+                        // There are no writes anymore (since this is the write "loop")
+                        // So it is safe to complete the writer
+                        // We complete the writer here because we already have the WriteLock acquired
+                        // and it's unsafe to complete outside of the lock
+                        // Other code isn't guaranteed to be able to acquire the lock before another write
+                        // even if CancelPendingFlush is called, and the other write could hang if there is backpressure
+                        connection.Application.Output.Complete();
                         return;
                     }
                     catch (IOException ex)
@@ -441,13 +489,10 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
                 return;
             }
 
-            Log.TerminatingConection(_logger);
+            Log.TerminatingConnection(_logger);
 
-            // Complete the receiving end of the pipe
-            connection.Application.Output.Complete();
-
-            // Dispose the connection gracefully, but don't wait for it. We assign it here so we can wait in tests
-            connection.DisposeAndRemoveTask = _manager.DisposeAndRemoveAsync(connection, closeGracefully: true);
+            // Dispose the connection, but don't wait for it. We assign it here so we can wait in tests
+            connection.DisposeAndRemoveTask = _manager.DisposeAndRemoveAsync(connection, closeGracefully: false);
 
             context.Response.StatusCode = StatusCodes.Status202Accepted;
             context.Response.ContentType = "text/plain";
@@ -582,6 +627,7 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
             var features = new FeatureCollection();
             features.Set<IHttpRequestFeature>(requestFeature);
             features.Set<IHttpResponseFeature>(responseFeature);
+            features.Set<IHttpResponseBodyFeature>(new StreamResponseBodyFeature(Stream.Null));
             features.Set<IHttpConnectionFeature>(connectionFeature);
 
             // REVIEW: We could strategically look at adding other features but it might be better
@@ -607,9 +653,9 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
 
         private async Task<HttpConnectionContext> GetConnectionAsync(HttpContext context)
         {
-            var connectionId = GetConnectionId(context);
+            var connectionToken = GetConnectionToken(context);
 
-            if (StringValues.IsNullOrEmpty(connectionId))
+            if (StringValues.IsNullOrEmpty(connectionToken))
             {
                 // There's no connection ID: bad request
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -618,7 +664,7 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
                 return null;
             }
 
-            if (!_manager.TryGetConnection(connectionId, out var connection))
+            if (!_manager.TryGetConnection(connectionToken, out var connection))
             {
                 // No connection with that ID: Not Found
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -633,15 +679,15 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
         // This is only used for WebSockets connections, which can connect directly without negotiating
         private async Task<HttpConnectionContext> GetOrCreateConnectionAsync(HttpContext context, HttpConnectionDispatcherOptions options)
         {
-            var connectionId = GetConnectionId(context);
+            var connectionToken = GetConnectionToken(context);
             HttpConnectionContext connection;
 
             // There's no connection id so this is a brand new connection
-            if (StringValues.IsNullOrEmpty(connectionId))
+            if (StringValues.IsNullOrEmpty(connectionToken))
             {
                 connection = CreateConnection(options);
             }
-            else if (!_manager.TryGetConnection(connectionId, out connection))
+            else if (!_manager.TryGetConnection(connectionToken, out connection))
             {
                 // No connection with that ID: Not Found
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -652,12 +698,11 @@ namespace Microsoft.AspNetCore.Http.Connections.Internal
             return connection;
         }
 
-        private HttpConnectionContext CreateConnection(HttpConnectionDispatcherOptions options)
+        private HttpConnectionContext CreateConnection(HttpConnectionDispatcherOptions options, int clientProtocolVersion = 0)
         {
             var transportPipeOptions = new PipeOptions(pauseWriterThreshold: options.TransportMaxBufferSize, resumeWriterThreshold: options.TransportMaxBufferSize / 2, readerScheduler: PipeScheduler.ThreadPool, useSynchronizationContext: false);
             var appPipeOptions = new PipeOptions(pauseWriterThreshold: options.ApplicationMaxBufferSize, resumeWriterThreshold: options.ApplicationMaxBufferSize / 2, readerScheduler: PipeScheduler.ThreadPool, useSynchronizationContext: false);
-
-            return _manager.CreateConnection(transportPipeOptions, appPipeOptions);
+            return _manager.CreateConnection(transportPipeOptions, appPipeOptions, clientProtocolVersion);
         }
 
         private class EmptyServiceProvider : IServiceProvider

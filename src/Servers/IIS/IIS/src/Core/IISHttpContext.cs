@@ -105,6 +105,7 @@ namespace Microsoft.AspNetCore.Server.IIS.Core
         internal WindowsPrincipal WindowsUser { get; set; }
         public Stream RequestBody { get; set; }
         public Stream ResponseBody { get; set; }
+        public PipeWriter ResponsePipeWrapper { get; set; }
 
         protected IAsyncIOEngine AsyncIO { get; set; }
 
@@ -373,9 +374,20 @@ namespace Microsoft.AspNetCore.Server.IIS.Core
             foreach (var headerPair in HttpResponseHeaders)
             {
                 var headerValues = headerPair.Value;
+
+                if (headerPair.Value.Count == 0)
+                {
+                    continue;
+                }
+
                 var knownHeaderIndex = HttpApiTypes.HTTP_RESPONSE_HEADER_ID.IndexOfKnownHeader(headerPair.Key);
                 for (var i = 0; i < headerValues.Count; i++)
                 {
+                    if (string.IsNullOrEmpty(headerValues[i]))
+                    {
+                        continue;
+                    }
+
                     var isFirst = i == 0;
                     var headerValueBytes = Encoding.UTF8.GetBytes(headerValues[i]);
                     fixed (byte* pHeaderValue = headerValueBytes)
@@ -397,7 +409,7 @@ namespace Microsoft.AspNetCore.Server.IIS.Core
             }
         }
 
-        public abstract Task<bool> ProcessRequestAsync();
+        public abstract Task ProcessRequestAsync();
 
         public void OnStarting(Func<object, Task> callback, object state)
         {
@@ -587,10 +599,9 @@ namespace Microsoft.AspNetCore.Server.IIS.Core
 
         private async Task HandleRequest()
         {
-            bool successfulRequest = false;
             try
             {
-                successfulRequest = await ProcessRequestAsync();
+                await ProcessRequestAsync();
             }
             catch (Exception ex)
             {
@@ -598,19 +609,9 @@ namespace Microsoft.AspNetCore.Server.IIS.Core
             }
             finally
             {
-                // Post completion after completing the request to resume the state machine
-                PostCompletion(ConvertRequestCompletionResults(successfulRequest));
-
-
                 // Dispose the context
                 Dispose();
             }
-        }
-
-        private static NativeMethods.REQUEST_NOTIFICATION_STATUS ConvertRequestCompletionResults(bool success)
-        {
-            return success ? NativeMethods.REQUEST_NOTIFICATION_STATUS.RQ_NOTIFICATION_CONTINUE
-                           : NativeMethods.REQUEST_NOTIFICATION_STATUS.RQ_NOTIFICATION_FINISH_REQUEST;
         }
     }
 }

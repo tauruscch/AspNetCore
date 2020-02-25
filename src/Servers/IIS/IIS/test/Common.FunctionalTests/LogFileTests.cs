@@ -8,7 +8,6 @@ using Microsoft.AspNetCore.Server.IIS.FunctionalTests.Utilities;
 using Microsoft.AspNetCore.Server.IntegrationTesting;
 using Microsoft.AspNetCore.Server.IntegrationTesting.IIS;
 using Microsoft.AspNetCore.Testing;
-using Microsoft.AspNetCore.Testing.xunit;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests
@@ -22,7 +21,7 @@ namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests
 
         public static TestMatrix TestVariants
             => TestMatrix.ForServers(DeployerSelector.ServerType)
-                .WithTfms(Tfm.NetCoreApp30)
+                .WithTfms(Tfm.NetCoreApp50)
                 .WithAllApplicationTypes()
                 .WithAllHostingModels();
 
@@ -172,7 +171,7 @@ namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests
 
         [ConditionalTheory]
         [MemberData(nameof(TestVariants))]
-        [Flaky("https://github.com/aspnet/AspNetCore-Internal/issues/2200", FlakyOn.All)]
+        [Flaky("https://github.com/dotnet/aspnetcore-internal/issues/2200", FlakyOn.All)]
         public async Task CheckUTF8File(TestVariant variant)
         {
             var path = "CheckConsoleFunctions";
@@ -232,6 +231,22 @@ namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests
             StopServer();
 
             EventLogHelpers.VerifyEventLogEvent(deploymentResult, EventLogHelpers.OutOfProcessFailedToStart(deploymentResult, "Wow!"), Logger);
+        }
+
+        [ConditionalFact]
+        [RequiresNewShim]
+        public async Task DisableRedirectionNoLogs()
+        {
+            var deploymentParameters = Fixture.GetBaseDeploymentParameters(HostingModel.OutOfProcess);
+            deploymentParameters.HandlerSettings["enableOutOfProcessConsoleRedirection"] = "false";
+            deploymentParameters.TransformArguments((a, _) => $"{a} ConsoleWriteSingle");
+            var deploymentResult = await DeployAsync(deploymentParameters);
+
+            var response = await deploymentResult.HttpClient.GetAsync("Test");
+
+            StopServer();
+
+            EventLogHelpers.VerifyEventLogEvent(deploymentResult, EventLogHelpers.OutOfProcessFailedToStart(deploymentResult, ""), Logger);
         }
 
         [ConditionalFact]

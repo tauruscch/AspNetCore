@@ -50,6 +50,8 @@ namespace Microsoft.AspNetCore.Components.RenderTree
             // if you plan to refactor this, be sure to benchmark the old and new versions
             // on Mono WebAssembly.
 
+            var origOldStartIndex = oldStartIndex;
+            var origNewStartIndex = newStartIndex;
             var hasMoreOld = oldEndIndexExcl > oldStartIndex;
             var hasMoreNew = newEndIndexExcl > newStartIndex;
             var prevOldSeq = -1;
@@ -97,6 +99,10 @@ namespace Microsoft.AspNetCore.Components.RenderTree
                     if (oldKey != null || newKey != null)
                     {
                         #region "Get diff action by matching on key"
+                        // Regardless of whether these two keys match, since you are using keys, we want to validate at this point that there are no clashes
+                        // so ensure we've built the dictionary that will be used for lookups if any don't match
+                        keyedItemInfos ??= BuildKeyToInfoLookup(diffContext, origOldStartIndex, oldEndIndexExcl, origNewStartIndex, newEndIndexExcl);
+
                         if (Equals(oldKey, newKey))
                         {
                             // Keys match
@@ -106,15 +112,10 @@ namespace Microsoft.AspNetCore.Components.RenderTree
                         else
                         {
                             // Keys don't match
-                            if (keyedItemInfos == null)
-                            {
-                                keyedItemInfos = BuildKeyToInfoLookup(diffContext, oldStartIndex, oldEndIndexExcl, newStartIndex, newEndIndexExcl);
-                            }
-
-                            var oldKeyItemInfo = oldKey != null ? keyedItemInfos[oldKey] : new KeyedItemInfo(-1, -1, false);
-                            var newKeyItemInfo = newKey != null ? keyedItemInfos[newKey] : new KeyedItemInfo(-1, -1, false);
-                            var oldKeyIsInNewTree = oldKeyItemInfo.NewIndex >= 0 && oldKeyItemInfo.IsUnique;
-                            var newKeyIsInOldTree = newKeyItemInfo.OldIndex >= 0 && newKeyItemInfo.IsUnique;
+                            var oldKeyItemInfo = oldKey != null ? keyedItemInfos[oldKey] : new KeyedItemInfo(-1, -1);
+                            var newKeyItemInfo = newKey != null ? keyedItemInfos[newKey] : new KeyedItemInfo(-1, -1);
+                            var oldKeyIsInNewTree = oldKeyItemInfo.NewIndex >= 0;
+                            var newKeyIsInOldTree = newKeyItemInfo.OldIndex >= 0;
 
                             // If either key is not in the other tree, we can handle it as an insert or a delete
                             // on this iteration. We're only forced to use the move logic that's not the case
@@ -304,7 +305,12 @@ namespace Microsoft.AspNetCore.Components.RenderTree
                 var key = KeyValue(ref frame);
                 if (key != null)
                 {
-                    result[key] = new KeyedItemInfo(oldStartIndex, -1, isUnique: !result.ContainsKey(key));
+                    if (result.ContainsKey(key))
+                    {
+                        ThrowExceptionForDuplicateKey(key);
+                    }
+
+                    result[key] = new KeyedItemInfo(oldStartIndex, -1);
                 }
 
                 oldStartIndex = NextSiblingIndex(frame, oldStartIndex);
@@ -316,15 +322,30 @@ namespace Microsoft.AspNetCore.Components.RenderTree
                 var key = KeyValue(ref frame);
                 if (key != null)
                 {
-                    result[key] = result.TryGetValue(key, out var existingEntry)
-                        ? new KeyedItemInfo(existingEntry.OldIndex, newStartIndex, isUnique: existingEntry.NewIndex < 0)
-                        : new KeyedItemInfo(-1, newStartIndex, isUnique: true);
+                    if (!result.TryGetValue(key, out var existingEntry))
+                    {
+                        result[key] = new KeyedItemInfo(-1, newStartIndex);
+                    }
+                    else
+                    {
+                        if (existingEntry.NewIndex >= 0)
+                        {
+                            ThrowExceptionForDuplicateKey(key);
+                        }
+
+                        result[key] = new KeyedItemInfo(existingEntry.OldIndex, newStartIndex);
+                    }
                 }
 
                 newStartIndex = NextSiblingIndex(frame, newStartIndex);
             }
 
             return result;
+        }
+
+        private static void ThrowExceptionForDuplicateKey(object key)
+        {
+            throw new InvalidOperationException($"More than one sibling has the same key value, '{key}'. Key values must be unique.");
         }
 
         private static object KeyValue(ref RenderTreeFrame frame)
@@ -343,8 +364,8 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         // Handles the diff for attribute nodes only - this invariant is enforced by the caller.
         //
         // The diff for attributes is different because we allow attributes to appear in any order.
-        // Put another way, the attributes list of an element or  component is *conceptually* 
-        // unordered. This is a case where we can produce a more minimal diff by avoiding 
+        // Put another way, the attributes list of an element or  component is *conceptually*
+        // unordered. This is a case where we can produce a more minimal diff by avoiding
         // non-meaningful reorderings of attributes.
         private static void AppendAttributeDiffEntriesForRange(
             ref DiffContext diffContext,
@@ -498,8 +519,9 @@ namespace Microsoft.AspNetCore.Components.RenderTree
             // comparisons it wants with the old values. Later we could choose to pass the
             // old parameter values if we wanted. By default, components always rerender
             // after any SetParameters call, which is safe but now always optimal for perf.
-            var oldParameters = new ParameterCollection(oldTree, oldComponentIndex);
-            var newParameters = new ParameterCollection(newTree, newComponentIndex);
+            var oldParameters = new ParameterView(ParameterViewLifetime.Unbound, oldTree, oldComponentIndex);
+            var newParametersLifetime = new ParameterViewLifetime(diffContext.BatchBuilder);
+            var newParameters = new ParameterView(newParametersLifetime, newTree, newComponentIndex);
             if (!newParameters.DefinitelyEquals(oldParameters))
             {
                 componentState.SetDirectParameters(newParameters);
@@ -872,7 +894,8 @@ namespace Microsoft.AspNetCore.Components.RenderTree
             var childComponentState = frame.ComponentState;
 
             // Set initial parameters
-            var initialParameters = new ParameterCollection(frames, frameIndex);
+            var initialParametersLifetime = new ParameterViewLifetime(diffContext.BatchBuilder);
+            var initialParameters = new ParameterView(initialParametersLifetime, frames, frameIndex);
             childComponentState.SetDirectParameters(initialParameters);
         }
 
@@ -892,9 +915,9 @@ namespace Microsoft.AspNetCore.Components.RenderTree
 
         private static void InitializeNewElementReferenceCaptureFrame(ref DiffContext diffContext, ref RenderTreeFrame newFrame)
         {
-            var newElementRef = ElementRef.CreateWithUniqueId();
-            newFrame = newFrame.WithElementReferenceCaptureId(newElementRef.Id);
-            newFrame.ElementReferenceCaptureAction(newElementRef);
+            var newElementReference = ElementReference.CreateWithUniqueId();
+            newFrame = newFrame.WithElementReferenceCaptureId(newElementReference.Id);
+            newFrame.ElementReferenceCaptureAction(newElementReference);
         }
 
         private static void InitializeNewComponentReferenceCaptureFrame(ref DiffContext diffContext, ref RenderTreeFrame newFrame)
@@ -936,7 +959,7 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         /// Exists only so that the various methods in this class can call each other without
         /// constantly building up long lists of parameters. Is private to this class, so the
         /// fact that it's a mutable struct is manageable.
-        /// 
+        ///
         /// Always pass by ref to avoid copying, and because the 'SiblingIndex' is mutable.
         /// </summary>
         private struct DiffContext

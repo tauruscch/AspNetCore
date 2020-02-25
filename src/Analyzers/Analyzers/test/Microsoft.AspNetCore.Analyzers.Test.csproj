@@ -1,17 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp3.0</TargetFramework>
+    <TargetFramework>$(DefaultNetCoreTargetFramework)</TargetFramework>
     <PreserveCompilationContext>true</PreserveCompilationContext>
     <RootNamespace>Microsoft.AspNetCore.Analyzers</RootNamespace>
-
-    <!-- Tests do not work on Helix or when bin/ directory is not in project directory due to undeclared dependency on test content. -->
-    <!-- https://github.com/aspnet/AspNetCore/issues/10422 -->
-    <BuildHelixPayload>false</BuildHelixPayload>
-    <BaseOutputPath />
-    <OutputPath />
-
-   </PropertyGroup>
+  </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="$(SharedSourceRoot)test\SkipOnHelixAttribute.cs" />

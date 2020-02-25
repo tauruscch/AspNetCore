@@ -21,7 +21,6 @@ using Microsoft.AspNetCore.Server.Kestrel.Https;
 using Microsoft.AspNetCore.Server.Kestrel.Https.Internal;
 using Microsoft.AspNetCore.Server.Kestrel.InMemory.FunctionalTests.TestTransport;
 using Microsoft.AspNetCore.Testing;
-using Microsoft.AspNetCore.Testing.xunit;
 using Microsoft.Extensions.Logging.Testing;
 using Xunit;
 
@@ -311,6 +310,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.InMemory.FunctionalTests
         }
 
         [Theory]
+        [Flaky("<no longer needed; tracked in Kusto>", FlakyOn.All)]
         [InlineData(HttpProtocols.Http1)]
         [InlineData(HttpProtocols.Http1AndHttp2)] // Make sure Http/1.1 doesn't regress with Http/2 enabled.
         public async Task CertificatePassedToHttpContext(HttpProtocols httpProtocols)
@@ -384,14 +384,14 @@ namespace Microsoft.AspNetCore.Server.Kestrel.InMemory.FunctionalTests
                 using (var connection = server.CreateConnection())
                 {
                     var stream = OpenSslStreamWithCert(connection.Stream);
-                    var ex = await Assert.ThrowsAsync<IOException>(
+                    var ex = await Assert.ThrowsAnyAsync<Exception>(
                         async () => await stream.AuthenticateAsClientAsync("localhost", new X509CertificateCollection(), SslProtocols.Tls, false));
                 }
             }
         }
 
         [Theory]
-        [Flaky("https://github.com/aspnet/AspNetCore-Internal/issues/1976", FlakyOn.All)]
+        [Flaky("https://github.com/dotnet/aspnetcore-internal/issues/1976", FlakyOn.All)]
         [InlineData(ClientCertificateMode.AllowCertificate)]
         [InlineData(ClientCertificateMode.RequireCertificate)]
         public async Task ClientCertificateValidationGetsCalledWithNotNullParameters(ClientCertificateMode mode)
@@ -426,7 +426,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.InMemory.FunctionalTests
         }
 
         [ConditionalTheory]
-        [Flaky("https://github.com/aspnet/AspNetCore-Internal/issues/1950", FlakyOn.Helix.All)]
+        [Flaky("https://github.com/dotnet/aspnetcore-internal/issues/1950", FlakyOn.Helix.All)]
         [InlineData(ClientCertificateMode.AllowCertificate)]
         [InlineData(ClientCertificateMode.RequireCertificate)]
         public async Task ValidationFailureRejectsConnection(ClientCertificateMode mode)
@@ -590,6 +590,41 @@ namespace Microsoft.AspNetCore.Server.Kestrel.InMemory.FunctionalTests
             Assert.Equal(CoreStrings.FormatInvalidServerCertificateEku(cert.Thumbprint), ex.Message);
         }
 
+        [ConditionalTheory]
+        [InlineData(HttpProtocols.Http1)]
+        [InlineData(HttpProtocols.Http2)]
+        [InlineData(HttpProtocols.Http1AndHttp2)]
+        [OSSkipCondition(OperatingSystems.MacOSX, SkipReason = "Missing SslStream ALPN support: https://github.com/dotnet/corefx/issues/30492")]
+        [SkipOnHelix("https://github.com/dotnet/aspnetcore/issues/10428", Queues = "Debian.8.Amd64;Debian.8.Amd64.Open")] // Debian 8 uses OpenSSL 1.0.1 which does not support HTTP/2
+        [MinimumOSVersion(OperatingSystems.Windows, WindowsVersions.Win81)]
+        public async Task ListenOptionsProtolsCanBeSetAfterUseHttps(HttpProtocols httpProtocols)
+        {
+            void ConfigureListenOptions(ListenOptions listenOptions)
+            {
+                listenOptions.UseHttps(_x509Certificate2);
+                listenOptions.Protocols = httpProtocols;
+            }
+
+            await using var server = new TestServer(context => Task.CompletedTask, new TestServiceContext(LoggerFactory), ConfigureListenOptions);
+            using var connection = server.CreateConnection();
+
+            var sslOptions = new SslClientAuthenticationOptions
+            {
+                TargetHost = "localhost",
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls11,
+                ApplicationProtocols = new List<SslApplicationProtocol> { SslApplicationProtocol.Http11, SslApplicationProtocol.Http2 },
+            };
+
+            using var stream = OpenSslStream(connection.Stream);
+            await stream.AuthenticateAsClientAsync(sslOptions);
+
+            Assert.Equal(
+                httpProtocols.HasFlag(HttpProtocols.Http2) ?
+                    SslApplicationProtocol.Http2 :
+                    SslApplicationProtocol.Http11,
+                stream.NegotiatedApplicationProtocol);
+        }
+
         private static async Task App(HttpContext httpContext)
         {
             var request = httpContext.Request;
@@ -613,8 +648,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.InMemory.FunctionalTests
 
         /// <summary>
         /// SslStream is used to ensure the certificate is actually passed to the server
-        /// HttpClient might not send the certificate because it is invalid or it doesn't match any 
-        /// of the certificate authorities sent by the server in the SSL handshake. 
+        /// HttpClient might not send the certificate because it is invalid or it doesn't match any
+        /// of the certificate authorities sent by the server in the SSL handshake.
         /// </summary>
         private static SslStream OpenSslStreamWithCert(Stream rawStream, X509Certificate2 clientCertificate = null)
         {

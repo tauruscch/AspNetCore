@@ -1,12 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp3.0</TargetFramework>
+    <TargetFramework>$(DefaultNetCoreTargetFramework)</TargetFramework>
     <TypeScriptCompileBlocked>True</TypeScriptCompileBlocked>
     <TypeScriptToolsVersion>2.8</TypeScriptToolsVersion>
 
     <!-- The naming of this file doesn't match repo conventions. This overrides the conventions. -->
     <IsTestAssetProject>true</IsTestAssetProject>
+    <!-- Avoid CS1705 errors due to mix of assemblies brought in transitively. -->
+    <CompileUsingReferenceAssemblies>false</CompileUsingReferenceAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
@@ -35,6 +37,8 @@
     <Reference Include="Microsoft.Extensions.Logging.Console" />
     <Reference Include="Microsoft.Extensions.Logging.Debug" />
     <Reference Include="System.Reactive.Linq" />
+    <!-- Avoid CS1705 errors due to mix of assemblies brought in transitively. -->
+    <Reference Include="Microsoft.AspNetCore.SignalR.Common" />
   </ItemGroup>
 
   <ItemGroup>
@@ -53,25 +57,5 @@
     <TypeScriptCompile Include="ts\WebSocketTests.ts" />
     <TypeScriptCompile Include="ts\WebWorkerTests.ts" />
   </ItemGroup>
-
-  <Target Name="ClientBuild" BeforeTargets="AfterBuild">
-      <ItemGroup>
-        <MsgPack5Files Include="$(MSBuildThisFileDirectory)../signalr-protocol-msgpack/node_modules/msgpack5/dist/*.js" />
-      </ItemGroup>
-      <Copy SourceFiles="@(MsgPack5Files)" DestinationFolder="$(MSBuildProjectDirectory)/wwwroot/lib/msgpack5" />
-      <ItemGroup>
-        <JasmineFiles Include="$(MSBuildThisFileDirectory)node_modules/jasmine-core/lib/jasmine-core/*.js" />
-        <JasmineFiles Include="$(MSBuildThisFileDirectory)node_modules/jasmine-core/lib/jasmine-core/*.css" />
-      </ItemGroup>
-      <Copy SourceFiles="@(JasmineFiles)" DestinationFolder="$(MSBuildProjectDirectory)/wwwroot/lib/jasmine" />
-
-      <ItemGroup>
-        <SignalRJSBrowserClientFiles Include="$(MSBuildThisFileDirectory)node_modules/@microsoft/signalr/dist/browser/*" />
-        <SignalRJSBrowserClientFiles Include="$(MSBuildThisFileDirectory)node_modules/@microsoft/signalr-protocol-msgpack/dist/browser/*" />
-        <SignalRJSWebWorkerClientFiles Include="$(MSBuildThisFileDirectory)node_modules/@microsoft/signalr/dist/webworker/*" />
-      </ItemGroup>
-      <Copy SourceFiles="@(SignalRJSBrowserClientFiles)" DestinationFolder="$(MSBuildThisFileDirectory)/wwwroot/lib/signalr" />
-      <Copy SourceFiles="@(SignalRJSWebWorkerClientFiles)" DestinationFolder="$(MSBuildThisFileDirectory)/wwwroot/lib/signalr-webworker" />
- </Target>
 
 </Project>

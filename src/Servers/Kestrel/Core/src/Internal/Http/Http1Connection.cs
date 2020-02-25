@@ -34,11 +34,19 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
         private HttpRequestTarget _requestTargetForm = HttpRequestTarget.Unknown;
         private Uri _absoluteRequestTarget;
 
+        // The _parsed fields cache the Path, QueryString, RawTarget, and/or _absoluteRequestTarget
+        // from the previous request when DisableStringReuse is false.
+        private string _parsedPath = null;
+        private string _parsedQueryString = null;
+        private string _parsedRawTarget = null;
+        private Uri _parsedAbsoluteRequestTarget;
+
         private int _remainingRequestHeadersBytesAllowed;
 
         public Http1Connection(HttpConnectionContext context)
-            : base(context)
         {
+            Initialize(context);
+
             _context = context;
             _parser = ServiceContext.HttpParser;
             _keepAliveTicks = ServerOptions.Limits.KeepAliveTimeout.Ticks;
@@ -287,13 +295,13 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 // origin-form.
                 // The most common form of request-target.
                 // https://tools.ietf.org/html/rfc7230#section-5.3.1
-                OnOriginFormTarget(method, version, target, path, query, customMethod, pathEncoded);
+                OnOriginFormTarget(pathEncoded, target, path, query);
             }
             else if (ch == ByteAsterisk && target.Length == 1)
             {
                 OnAsteriskFormTarget(method);
             }
-            else if (target.GetKnownHttpScheme(out var scheme))
+            else if (target.GetKnownHttpScheme(out _))
             {
                 OnAbsoluteFormTarget(target, query);
             }
@@ -321,7 +329,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
         }
 
         // Compare with Http2Stream.TryValidatePseudoHeaders
-        private void OnOriginFormTarget(HttpMethod method, HttpVersion version, Span<byte> target, Span<byte> path, Span<byte> query, Span<byte> customMethod, bool pathEncoded)
+        private void OnOriginFormTarget(bool pathEncoded, Span<byte> target, Span<byte> path, Span<byte> query)
         {
             Debug.Assert(target[0] == ByteForwardSlash, "Should only be called when path starts with /");
 
@@ -337,6 +345,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 // Clear parsedData as we won't check it if we come via this path again,
                 // an setting to null is fast as it doesn't need to use a GC write barrier.
                 _parsedRawTarget = _parsedPath = _parsedQueryString = null;
+                _parsedAbsoluteRequestTarget = null;
                 return;
             }
 
@@ -389,6 +398,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                     Path = _parsedPath;
                     QueryString = _parsedQueryString;
                 }
+
+                // Clear parsedData for absolute target as we won't check it if we come via this path again,
+                // an setting to null is fast as it doesn't need to use a GC write barrier.
+                _parsedAbsoluteRequestTarget = null;
             }
             catch (InvalidOperationException)
             {
@@ -441,9 +454,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
             Path = string.Empty;
             QueryString = string.Empty;
-            // Clear parsedData for path and queryString as we won't check it if we come via this path again,
+            // Clear parsedData for path, queryString and absolute target as we won't check it if we come via this path again,
             // an setting to null is fast as it doesn't need to use a GC write barrier.
             _parsedPath = _parsedQueryString = null;
+            _parsedAbsoluteRequestTarget = null;
         }
 
         private void OnAsteriskFormTarget(HttpMethod method)
@@ -463,6 +477,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
             // Clear parsedData as we won't check it if we come via this path again,
             // an setting to null is fast as it doesn't need to use a GC write barrier.
             _parsedRawTarget = _parsedPath = _parsedQueryString = null;
+            _parsedAbsoluteRequestTarget = null;
         }
 
         private void OnAbsoluteFormTarget(Span<byte> target, Span<byte> query)
@@ -497,7 +512,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                     ThrowRequestTargetRejected(target);
                 }
 
-                _absoluteRequestTarget = uri;
+                _absoluteRequestTarget = _parsedAbsoluteRequestTarget = uri;
                 Path = _parsedPath = uri.LocalPath;
                 // don't use uri.Query because we need the unescaped version
                 previousValue = _parsedQueryString;
@@ -520,6 +535,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 RawTarget = _parsedRawTarget;
                 Path = _parsedPath;
                 QueryString = _parsedQueryString;
+                _absoluteRequestTarget = _parsedAbsoluteRequestTarget;
             }
         }
 

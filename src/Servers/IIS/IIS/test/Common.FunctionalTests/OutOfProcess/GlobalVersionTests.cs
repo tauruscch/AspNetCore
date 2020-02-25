@@ -10,7 +10,7 @@ using System.Xml.Linq;
 using Microsoft.AspNetCore.Server.IIS.FunctionalTests.Utilities;
 using Microsoft.AspNetCore.Server.IntegrationTesting;
 using Microsoft.AspNetCore.Server.IntegrationTesting.IIS;
-using Microsoft.AspNetCore.Testing.xunit;
+using Microsoft.AspNetCore.Testing;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests.OutOfProcess
@@ -83,7 +83,7 @@ namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests.OutOfProcess
             var response = await deploymentResult.HttpClient.GetAsync(_helloWorldRequest);
             Assert.False(response.IsSuccessStatusCode);
             var responseString = await response.Content.ReadAsStringAsync();
-            Assert.Contains("HTTP Error 500.0 - ANCM Out-Of-Process Handler Load Failure", responseString);
+            Assert.Contains("500.0", responseString);
         }
 
         [ConditionalTheory]

@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Core;
@@ -26,7 +27,7 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
 
         private readonly JsonOptions _options;
         private readonly ILogger<SystemTextJsonResultExecutor> _logger;
-        private readonly AsyncEnumerableReader _asyncEnumerableReader;
+        private readonly AsyncEnumerableReader _asyncEnumerableReaderFactory;
 
         public SystemTextJsonResultExecutor(
             IOptions<JsonOptions> options,
@@ -35,7 +36,7 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
         {
             _options = options.Value;
             _logger = logger;
-            _asyncEnumerableReader = new AsyncEnumerableReader(mvcOptions.Value);
+            _asyncEnumerableReaderFactory = new AsyncEnumerableReader(mvcOptions.Value);
         }
 
         public async Task ExecuteAsync(ActionContext context, JsonResult result)
@@ -75,21 +76,29 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
             try
             {
                 var value = result.Value;
-                if (value is IAsyncEnumerable<object> asyncEnumerable)
+                if (value != null && _asyncEnumerableReaderFactory.TryGetReader(value.GetType(), out var reader))
                 {
-                    Log.BufferingAsyncEnumerable(_logger, asyncEnumerable);
-                    value = await _asyncEnumerableReader.ReadAsync(asyncEnumerable);
+                    Log.BufferingAsyncEnumerable(_logger, value);
+                    value = await reader(value);
                 }
 
                 var type = value?.GetType() ?? typeof(object);
                 await JsonSerializer.SerializeAsync(writeStream, value, type, jsonSerializerOptions);
+
+                // The transcoding streams use Encoders and Decoders that have internal buffers. We need to flush these
+                // when there is no more data to be written. Stream.FlushAsync isn't suitable since it's
+                // acceptable to Flush a Stream (multiple times) prior to completion.
+                if (writeStream is TranscodingWriteStream transcodingStream)
+                {
+                    await transcodingStream.FinalWriteAsync(CancellationToken.None);
+                }
                 await writeStream.FlushAsync();
             }
             finally
             {
-                if (writeStream is TranscodingWriteStream transcoding)
+                if (writeStream is TranscodingWriteStream transcodingStream)
                 {
-                    await transcoding.DisposeAsync();
+                    await transcodingStream.DisposeAsync();
                 }
             }
         }
@@ -145,7 +154,7 @@ namespace Microsoft.AspNetCore.Mvc.Infrastructure
                 _jsonResultExecuting(logger, type, null);
             }
 
-            public static void BufferingAsyncEnumerable(ILogger logger, IAsyncEnumerable<object> asyncEnumerable)
+            public static void BufferingAsyncEnumerable(ILogger logger, object asyncEnumerable)
                 => _bufferingAsyncEnumerable(logger, asyncEnumerable.GetType().FullName, null);
         }
     }

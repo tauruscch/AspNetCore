@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Server.IIS.FunctionalTests;
 using Microsoft.AspNetCore.Server.IntegrationTesting;
 using Microsoft.AspNetCore.Server.IntegrationTesting.Common;
 using Microsoft.AspNetCore.Server.IntegrationTesting.IIS;
-using Microsoft.AspNetCore.Testing.xunit;
+using Microsoft.AspNetCore.Testing;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -29,13 +29,13 @@ namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests
 
         public static TestMatrix TestVariants
             => TestMatrix.ForServers(DeployerSelector.ServerType)
-                .WithTfms(Tfm.NetCoreApp30)
+                .WithTfms(Tfm.NetCoreApp50)
                 .WithAllApplicationTypes()
                 .WithAllHostingModels();
 
         [ConditionalTheory]
         [MemberData(nameof(TestVariants))]
-        [OSSkipCondition(OperatingSystems.Windows, WindowsVersions.Win7, WindowsVersions.Win2008R2)]
+        [MinimumOSVersion(OperatingSystems.Windows, WindowsVersions.Win8)]
         public Task HttpsNoClientCert_NoClientCert(TestVariant variant)
         {
             return ClientCertTest(variant, sendClientCert: false);
@@ -43,7 +43,7 @@ namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests
 
         [ConditionalTheory]
         [MemberData(nameof(TestVariants))]
-        [OSSkipCondition(OperatingSystems.Windows, WindowsVersions.Win7, WindowsVersions.Win2008R2)]
+        [MinimumOSVersion(OperatingSystems.Windows, WindowsVersions.Win8)]
         public Task HttpsClientCert_GetCertInformation(TestVariant variant)
         {
             return ClientCertTest(variant, sendClientCert: true);
@@ -54,7 +54,7 @@ namespace Microsoft.AspNetCore.Server.IIS.FunctionalTests
             var port = TestPortHelper.GetNextSSLPort();
             var deploymentParameters = Fixture.GetBaseDeploymentParameters(variant);
             deploymentParameters.ApplicationBaseUriHint = $"https://localhost:{port}/";
-            deploymentParameters.AddHttpsToServerConfig();
+            deploymentParameters.AddHttpsWithClientCertToServerConfig();
 
             var handler = new HttpClientHandler
             {

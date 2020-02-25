@@ -19,21 +19,30 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
 {
     internal abstract partial class Http2Stream : HttpProtocol, IThreadPoolWorkItem
     {
-        private readonly Http2StreamContext _context;
-        private readonly Http2OutputProducer _http2Output;
-        private readonly StreamInputFlowControl _inputFlowControl;
-        private readonly StreamOutputFlowControl _outputFlowControl;
+        private Http2StreamContext _context;
+        private Http2OutputProducer _http2Output;
+        private StreamInputFlowControl _inputFlowControl;
+        private StreamOutputFlowControl _outputFlowControl;
 
-        public Pipe RequestBodyPipe { get; }
+        private bool _decrementCalled;
+
+        public Pipe RequestBodyPipe { get; set; }
 
         internal long DrainExpirationTicks { get; set; }
 
         private StreamCompletionFlags _completionState;
         private readonly object _completionLock = new object();
 
-        public Http2Stream(Http2StreamContext context)
-            : base(context)
+        public void Initialize(Http2StreamContext context)
         {
+            base.Initialize(context);
+
+            _decrementCalled = false;
+            _completionState = StreamCompletionFlags.None;
+            InputRemaining = null;
+            RequestBodyStarted = false;
+            DrainExpirationTicks = 0;
+
             _context = context;
 
             _inputFlowControl = new StreamInputFlowControl(
@@ -51,13 +60,18 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 context.StreamId,
                 context.FrameWriter,
                 _outputFlowControl,
-                context.TimeoutControl,
                 context.MemoryPool,
                 this,
                 context.ServiceContext.Log);
 
             RequestBodyPipe = CreateRequestBodyPipe(context.ServerPeerSettings.InitialWindowSize);
             Output = _http2Output;
+        }
+
+        public void InitializeWithExistingContext(int streamId)
+        {
+            _context.StreamId = streamId;
+            Initialize(_context);
         }
 
         public int StreamId => _context.StreamId;
@@ -82,6 +96,9 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
 
         protected override void OnReset()
         {
+            _keepAlive = true;
+            _connectionAborted = false;
+
             ResetHttp2Features();
         }
 
@@ -95,9 +112,10 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 {
                     Log.RequestBodyNotEntirelyRead(ConnectionIdFeature, TraceIdentifier);
 
-                    var states = ApplyCompletionFlag(StreamCompletionFlags.Aborted);
-                    if (states.OldState != states.NewState)
+                    var (oldState, newState) = ApplyCompletionFlag(StreamCompletionFlags.Aborted);
+                    if (oldState != newState)
                     {
+                        Debug.Assert(_decrementCalled);
                         // Don't block on IO. This never faults.
                         _ = _http2Output.WriteRstStreamAsync(Http2ErrorCode.NO_ERROR);
                         RequestBodyPipe.Writer.Complete();
@@ -299,9 +317,18 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
 
             try
             {
+                const int MaxPathBufferStackAllocSize = 256;
+
                 // The decoder operates only on raw bytes
-                var pathBuffer = new byte[pathSegment.Length].AsSpan();
-                for (int i = 0; i < pathSegment.Length; i++)
+                Span<byte> pathBuffer = pathSegment.Length <= MaxPathBufferStackAllocSize
+                    // A constant size plus slice generates better code
+                    // https://github.com/dotnet/aspnetcore/pull/19273#discussion_r383159929
+                    ? stackalloc byte[MaxPathBufferStackAllocSize].Slice(0, pathSegment.Length)
+                    // TODO - Consider pool here for less than 4096
+                    // https://github.com/dotnet/aspnetcore/pull/19273#discussion_r383604184
+                    : new byte[pathSegment.Length];
+
+                for (var i = 0; i < pathSegment.Length; i++)
                 {
                     var ch = pathSegment[i];
                     // The header parser should already be checking this
@@ -420,15 +447,18 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
 
         public void AbortRstStreamReceived()
         {
+            // Client sent a reset stream frame, decrement total count.
+            DecrementActiveClientStreamCount();
+
             ApplyCompletionFlag(StreamCompletionFlags.RstStreamReceived);
             Abort(new IOException(CoreStrings.Http2StreamResetByClient));
         }
 
         public void Abort(IOException abortReason)
         {
-            var states = ApplyCompletionFlag(StreamCompletionFlags.Aborted);
+            var (oldState, newState) = ApplyCompletionFlag(StreamCompletionFlags.Aborted);
 
-            if (states.OldState == states.NewState)
+            if (oldState == newState)
             {
                 return;
             }
@@ -452,15 +482,16 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
         internal void ResetAndAbort(ConnectionAbortedException abortReason, Http2ErrorCode error)
         {
             // Future incoming frames will drain for a default grace period to avoid destabilizing the connection.
-            var states = ApplyCompletionFlag(StreamCompletionFlags.Aborted);
+            var (oldState, newState) = ApplyCompletionFlag(StreamCompletionFlags.Aborted);
 
-            if (states.OldState == states.NewState)
+            if (oldState == newState)
             {
                 return;
             }
 
             Log.Http2StreamResetAbort(TraceIdentifier, error, abortReason);
 
+            DecrementActiveClientStreamCount();
             // Don't block on IO. This never faults.
             _ = _http2Output.WriteRstStreamAsync(error);
 
@@ -480,6 +511,23 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             RequestBodyPipe.Writer.Complete(abortReason);
 
             _inputFlowControl.Abort();
+        }
+
+        public void DecrementActiveClientStreamCount()
+        {
+            // Decrement can be called twice, via calling CompleteAsync and then Abort on the HttpContext.
+            // Only decrement once total.
+            lock (_completionLock)
+            {
+                if (_decrementCalled)
+                {
+                    return;
+                }
+
+                _decrementCalled = true;
+            }
+          
+            _context.StreamLifetimeHandler.DecrementActiveClientStreamCount();
         }
 
         private Pipe CreateRequestBodyPipe(uint windowSize)

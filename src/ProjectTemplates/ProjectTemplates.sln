@@ -175,9 +175,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "_dependencies", "_dependenc
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Microsoft.AspNetCore.ApiAuthorization.IdentityServer", "..\Identity\ApiAuthorization.IdentityServer\src\Microsoft.AspNetCore.ApiAuthorization.IdentityServer.csproj", "{6012D544-32B4-4F5C-B335-A224AA4F661D}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Microsoft.AspNetCore.Mvc.Components.Prerendering", "..\Mvc\Mvc.Components.Prerendering\src\Microsoft.AspNetCore.Mvc.Components.Prerendering.csproj", "{706DBAF7-0BB4-4B4F-9B44-E7C3372ECDF2}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Microsoft.AspNetCore.SpaServices.Extensions", "..\Middleware\SpaServices.Extensions\src\Microsoft.AspNetCore.SpaServices.Extensions.csproj", "{06D0D7B2-EDA3-45A2-A060-AB791ED1DB80}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Microsoft.AspNetCore.Blazor.Templates", "BlazorWasm.ProjectTemplates\Microsoft.AspNetCore.Blazor.Templates.csproj", "{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -1233,6 +1233,18 @@ Global
 		{06D0D7B2-EDA3-45A2-A060-AB791ED1DB80}.Release|x64.Build.0 = Release|Any CPU
 		{06D0D7B2-EDA3-45A2-A060-AB791ED1DB80}.Release|x86.ActiveCfg = Release|Any CPU
 		{06D0D7B2-EDA3-45A2-A060-AB791ED1DB80}.Release|x86.Build.0 = Release|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Debug|x64.Build.0 = Debug|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Debug|x86.Build.0 = Debug|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Release|x64.ActiveCfg = Release|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Release|x64.Build.0 = Release|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Release|x86.ActiveCfg = Release|Any CPU
+		{C6D371A8-D8EA-4CF4-844E-8C6DFDF61642}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

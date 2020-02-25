@@ -57,7 +57,7 @@ namespace Microsoft.AspNetCore.Authentication.Negotiate
         /// <returns></returns>
         protected override Task<object> CreateEventsAsync() => Task.FromResult<object>(new NegotiateEvents());
 
-        private bool IsHttp2 => string.Equals("HTTP/2", Request.Protocol, StringComparison.OrdinalIgnoreCase);
+        private bool IsSupportedProtocol => HttpProtocol.IsHttp11(Request.Protocol) || HttpProtocol.IsHttp10(Request.Protocol);
 
         /// <summary>
         /// Intercepts incomplete Negotiate authentication handshakes and continues or completes them.
@@ -65,6 +65,8 @@ namespace Microsoft.AspNetCore.Authentication.Negotiate
         /// <returns>True if a response was generated, false otherwise.</returns>
         public async Task<bool> HandleRequestAsync()
         {
+            AuthPersistence persistence = null;
+            bool authFailedEventCalled = false;
             try
             {
                 if (_requestProcessed || Options.DeferToServer)
@@ -78,15 +80,15 @@ namespace Microsoft.AspNetCore.Authentication.Negotiate
 
                 _requestProcessed = true;
 
-                if (IsHttp2)
+                if (!IsSupportedProtocol)
                 {
-                    // HTTP/2 is not supported. Do not throw because this may be running on a server that supports
-                    // both HTTP/1 and HTTP/2.
+                    // HTTP/1.0 and HTTP/1.1 are supported. Do not throw because this may be running on a server that supports
+                    // additional protocols.
                     return false;
                 }
 
                 var connectionItems = GetConnectionItems();
-                var persistence = (AuthPersistence)connectionItems[AuthPersistenceKey];
+                persistence = (AuthPersistence)connectionItems[AuthPersistenceKey];
                 _negotiateState = persistence?.State;
 
                 var authorizationHeader = Request.Headers[HeaderNames.Authorization];
@@ -126,7 +128,40 @@ namespace Microsoft.AspNetCore.Authentication.Negotiate
 
                 _negotiateState ??= Options.StateFactory.CreateInstance();
 
-                var outgoing = _negotiateState.GetOutgoingBlob(token);
+                var outgoing = _negotiateState.GetOutgoingBlob(token, out var errorType, out var exception);
+                Logger.LogInformation(errorType.ToString());
+                if (errorType != BlobErrorType.None)
+                {
+                    _negotiateState.Dispose();
+                    _negotiateState = null;
+                    if (persistence?.State != null)
+                    {
+                        persistence.State.Dispose();
+                        persistence.State = null;
+                    }
+
+                    if (errorType == BlobErrorType.CredentialError)
+                    {
+                        Logger.CredentialError(exception);
+                        authFailedEventCalled = true; // Could throw, and we don't want to double trigger the event.
+                        var result = await InvokeAuthenticateFailedEvent(exception);
+                        return result ?? false; // Default to skipping the handler, let AuthZ generate a new 401
+                    }
+                    else if (errorType == BlobErrorType.ClientError)
+                    {
+                        Logger.ClientError(exception);
+                        authFailedEventCalled = true; // Could throw, and we don't want to double trigger the event.
+                        var result = await InvokeAuthenticateFailedEvent(exception);
+                        if (result.HasValue)
+                        {
+                            return result.Value;
+                        }
+                        Context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                        return true; // Default to terminating request
+                    }
+
+                    throw exception;
+                }
 
                 if (!_negotiateState.IsCompleted)
                 {
@@ -193,30 +228,56 @@ namespace Microsoft.AspNetCore.Authentication.Negotiate
             }
             catch (Exception ex)
             {
-                Logger.ExceptionProcessingAuth(ex);
-                var errorContext = new AuthenticationFailedContext(Context, Scheme, Options) { Exception = ex };
-                await Events.AuthenticationFailed(errorContext);
-
-                if (errorContext.Result != null)
+                if (authFailedEventCalled)
                 {
-                    if (errorContext.Result.Handled)
-                    {
-                        return true;
-                    }
-                    else if (errorContext.Result.Skipped)
-                    {
-                        return false;
-                    }
-                    else if (errorContext.Result.Failure != null)
-                    {
-                        throw new Exception("An error was returned from the AuthenticationFailed event.", errorContext.Result.Failure);
-                    }
+                    throw;
+                }
+
+                Logger.ExceptionProcessingAuth(ex);
+
+                // Clear state so it's possible to retry on the same connection.
+                _negotiateState?.Dispose();
+                _negotiateState = null;
+                if (persistence?.State != null)
+                {
+                    persistence.State.Dispose();
+                    persistence.State = null;
+                }
+
+                var result = await InvokeAuthenticateFailedEvent(ex);
+                if (result.HasValue)
+                {
+                    return result.Value;
                 }
 
                 throw;
             }
 
             return false;
+        }
+
+        private async Task<bool?> InvokeAuthenticateFailedEvent(Exception ex)
+        {
+            var errorContext = new AuthenticationFailedContext(Context, Scheme, Options) { Exception = ex };
+            await Events.AuthenticationFailed(errorContext);
+
+            if (errorContext.Result != null)
+            {
+                if (errorContext.Result.Handled)
+                {
+                    return true;
+                }
+                else if (errorContext.Result.Skipped)
+                {
+                    return false;
+                }
+                else if (errorContext.Result.Failure != null)
+                {
+                    throw new Exception("An error was returned from the AuthenticationFailed event.", errorContext.Result.Failure);
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
@@ -230,7 +291,7 @@ namespace Microsoft.AspNetCore.Authentication.Negotiate
                 throw new InvalidOperationException("AuthenticateAsync must not be called before the UseAuthentication middleware runs.");
             }
 
-            if (IsHttp2)
+            if (!IsSupportedProtocol)
             {
                 // Not supported. We don't throw because Negotiate may be set as the default auth
                 // handler on a server that's running HTTP/1 and HTTP/2. We'll challenge HTTP/2 requests

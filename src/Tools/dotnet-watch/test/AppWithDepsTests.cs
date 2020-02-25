@@ -5,7 +5,6 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Testing;
-using Microsoft.AspNetCore.Testing.xunit;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -20,7 +19,8 @@ namespace Microsoft.DotNet.Watcher.Tools.FunctionalTests
             _app = new AppWithDeps(logger);
         }
 
-        [Fact(Skip = "https://github.com/aspnet/AspNetCore/issues/8267")]
+        [Fact]
+        [Flaky("<No longer needed; tracked in Kusto>", FlakyOn.All)]
         public async Task ChangeFileInDependency()
         {
             await _app.StartWatcherAsync();

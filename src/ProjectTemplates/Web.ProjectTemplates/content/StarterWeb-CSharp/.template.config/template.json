@@ -9,10 +9,10 @@
   "generatorVersions": "[1.0.0.0-*)",
   "description": "A project template for creating an ASP.NET Core application with example ASP.NET Core MVC Views and Controllers. This template can also be used for RESTful HTTP services.",
   "groupIdentity": "Microsoft.Web.Mvc",
-  "precedence": "5000",
-  "identity": "Microsoft.Web.Mvc.CSharp.3.0",
+  "precedence": "6000",
+  "identity": "Microsoft.Web.Mvc.CSharp.3.1",
   "shortName": "mvc",
-  "thirdPartyNotices": "https://aka.ms/aspnetcore-template-3pn-210",
+  "thirdPartyNotices": "https://aka.ms/aspnetcore/3.1-third-party-notices",
   "tags": {
     "language": "C#",
     "type": "project"
@@ -294,18 +294,24 @@
       "defaultValue": "false",
       "description": "Whether to use LocalDB instead of SQLite. This option only applies if --auth Individual or --auth IndividualB2C is specified."
     },
+    "RazorRuntimeCompilation": {
+      "type": "parameter",
+      "datatype": "bool",
+      "defaultValue": "false",
+      "description": "Determines if the project is configured to use Razor runtime compilation in Debug builds."
+    },
     "Framework": {
       "type": "parameter",
       "description": "The target framework for the project.",
       "datatype": "choice",
       "choices": [
         {
-          "choice": "netcoreapp3.0",
-          "description": "Target netcoreapp3.0"
+          "choice": "netcoreapp5.0",
+          "description": "Target netcoreapp5.0"
         }
       ],
-      "replaces": "netcoreapp3.0",
-      "defaultValue": "netcoreapp3.0"
+      "replaces": "netcoreapp5.0",
+      "defaultValue": "netcoreapp5.0"
     },
     "copyrightYear": {
       "type": "generated",
@@ -327,7 +333,7 @@
       "path": "Company.WebApplication1.csproj"
     }
   ],
-  "defaultName": "WebApplication1",
+  "defaultName": "WebApplication",
   "postActions": [
     {
       "condition": "(!skipRestore)",

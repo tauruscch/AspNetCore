@@ -11,6 +11,22 @@ namespace Microsoft.AspNetCore.Components.Analyzers
     public class ComponentParameterSettersShouldBePublicTest : DiagnosticVerifier
     {
         [Fact]
+        public void IgnoresCascadingParameterProperties()
+        {
+            var test = $@"
+    namespace ConsoleApplication1
+    {{
+        using {typeof(CascadingParameterAttribute).Namespace};
+        class TypeName
+        {{
+            [CascadingParameter] string MyProperty {{ get; set; }}
+        }}
+    }}" + ComponentsTestDeclarations.Source;
+
+            VerifyCSharpDiagnostic(test);
+        }
+
+        [Fact]
         public void IgnoresPublicSettersProperties()
         {
             var test = $@"
@@ -62,7 +78,7 @@ namespace Microsoft.AspNetCore.Components.Analyzers
                 {
                     Id = DiagnosticDescriptors.ComponentParameterSettersShouldBePublic.Id,
                     Message = "Component parameter 'ConsoleApplication1.TypeName.MyProperty1' should have a public setter.",
-                    Severity = DiagnosticSeverity.Warning,
+                    Severity = DiagnosticSeverity.Error,
                     Locations = new[]
                     {
                         new DiagnosticResultLocation("Test0.cs", 7, 39)
@@ -72,7 +88,7 @@ namespace Microsoft.AspNetCore.Components.Analyzers
                 {
                     Id = DiagnosticDescriptors.ComponentParameterSettersShouldBePublic.Id,
                     Message = "Component parameter 'ConsoleApplication1.TypeName.MyProperty2' should have a public setter.",
-                    Severity = DiagnosticSeverity.Warning,
+                    Severity = DiagnosticSeverity.Error,
                     Locations = new[]
                     {
                         new DiagnosticResultLocation("Test0.cs", 8, 39)
@@ -82,7 +98,7 @@ namespace Microsoft.AspNetCore.Components.Analyzers
                 {
                     Id = DiagnosticDescriptors.ComponentParameterSettersShouldBePublic.Id,
                     Message = "Component parameter 'ConsoleApplication1.TypeName.MyProperty3' should have a public setter.",
-                    Severity = DiagnosticSeverity.Warning,
+                    Severity = DiagnosticSeverity.Error,
                     Locations = new[]
                     {
                         new DiagnosticResultLocation("Test0.cs", 9, 39)

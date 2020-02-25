@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Internal;
 using Microsoft.AspNetCore.Testing;
-using Microsoft.AspNetCore.Testing.xunit;
 using Xunit;
 
 namespace Microsoft.AspNetCore.Hosting
@@ -107,7 +106,7 @@ namespace Microsoft.AspNetCore.Hosting
 
         [Theory]
         [MemberData(nameof(RequestStartData))]
-        [Flaky("https://github.com/aspnet/AspNetCore-Internal/issues/2230", FlakyOn.All)]
+        [Flaky("https://github.com/dotnet/aspnetcore-internal/issues/2230", FlakyOn.All)]
         public void RequestStart(DefaultHttpContext httpContext, string[] expected)
         {
             // Arrange
